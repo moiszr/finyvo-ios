@@ -1,0 +1,104 @@
+# =========================
+# Xcode
+# =========================
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+*.moved-aside
+*.xcuserdatad
+*.xcscmblueprint
+
+# User-specific Xcode files
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+
+# iOS / watchOS / tvOS builds
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# =========================
+# Swift Package Manager
+# =========================
+.build/
+Packages/
+.swiftpm/config/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/xcode/xcshareddata/
+.swiftpm/xcode/xcuserdata/
+.swiftpm/xcode/playgrounds/
+Package.resolved
+
+# =========================
+# CocoaPods
+# =========================
+Pods/
+*.xcworkspace
+
+# =========================
+# Carthage
+# =========================
+Carthage/Build/
+Carthage/Checkouts/
+
+# =========================
+# Fastlane
+# =========================
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# =========================
+# Playgrounds
+# =========================
+timeline.xctimeline
+playground.xcworkspace
+
+# =========================
+# SwiftLint / Otros
+# =========================
+.swiftlint.yml
+.swiftformat
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Iconos
+Icon?
+._*
+
+# Archivos de Thumbnails
+._.DS_Store
+
+# Volúmenes externos
+.Spotlight-V100
+.Trashes
+
+# =========================
+# Archivos temporales
+# =========================
+*.swp
+*.lock
+*.tmp
+*.orig
+*.bak
+
+# =========================
+# Archivos de log
+# =========================
+*.log
+
+# =========================
+# Otros
+# =========================
+*.orig
+
