@@ -15,11 +15,24 @@ enum FColors {
     
     // MARK: - Brand Colors
     /// Color principal de la marca Finyvo
-    static let brand = Color(hex: "0EA5E9")
+    static let brand = Color(hex: "#0EA5E9")
     
     /// Variantes del color de marca para diferentes estados
-    static let brandLight = Color(hex: "7DD3FC")
-    static let brandDark = Color(hex: "0284C7")
+    static let brandLight = Color(hex: "#7DD3FC")
+    static let brandDark = Color(hex: "#0284C7")
+    
+    // MARK: - Background Colors
+    /// Fondo principal de la app (personalizado para dark mode)
+    static let background = Color("Background")
+    
+    /// Fondo secundario (para cards, secciones)
+    static let backgroundSecondary = Color("BackgroundSecondary")
+    
+    /// Fondo terciario (para elementos anidados)
+    static let backgroundTertiary = Color("BackgroundTertiary")
+    
+    /// Fondo agrupado (para listas con estilo inset)
+    static let backgroundGrouped = Color("BackgroundGrouped")
     
     // MARK: - Semantic Colors (iOS Native)
     /// Estos colores se adaptan automáticamente a light/dark mode
@@ -33,25 +46,12 @@ enum FColors {
     /// Color para texto terciario o hints
     static let textTertiary = Color(uiColor: .tertiaryLabel)
     
-    // MARK: - Background Colors
-    /// Fondo principal de la app
-    static let background = Color(uiColor: .systemBackground)
-    
-    /// Fondo secundario (para cards, secciones)
-    static let backgroundSecondary = Color(uiColor: .secondarySystemBackground)
-    
-    /// Fondo terciario (para elementos anidados)
-    static let backgroundTertiary = Color(uiColor: .tertiarySystemBackground)
-    
-    /// Fondo agrupado (para listas con estilo inset)
-    static let backgroundGrouped = Color(uiColor: .systemGroupedBackground)
-    
     // MARK: - Surface Colors (Cards, Sheets)
     /// Color para cards y superficies elevadas
-    static let surface = Color(uiColor: .secondarySystemBackground)
+    static let surface = Color("Surface")
     
     /// Color para superficies con glass effect
-    static let surfaceGlass = Color(uiColor: .systemBackground).opacity(0.8)
+    static let surfaceGlass = Color("Background").opacity(0.8)
     
     // MARK: - Utility Colors
     /// Separadores y bordes sutiles
@@ -82,6 +82,40 @@ enum FColors {
     
     /// Color para transferencias
     static let transfer = Color.blue
+    
+    // MARK: - Palette Colors
+    /// Paleta de colores para gráficas, cards y elementos de UI.
+    /// Todos los colores tienen la misma intensidad/vibración que el brand blue.
+    
+    static let blue = Color(hex: "#0EA5E9")    // Brand blue (referencia)
+    static let red = Color(hex: "#EF4444")     // Rojo vibrante
+    static let yellow = Color(hex: "#EAB308")  // Amarillo dorado
+    static let teal = Color(hex: "#14B8A6")    // Turquesa vibrante
+    static let orange = Color(hex: "#F97316")  // Naranja vibrante
+    static let pink = Color(hex: "#EC4899")    // Rosa vibrante
+    static let green = Color(hex: "#22C55E")   // Verde vibrante
+    static let purple = Color(hex: "#A855F7")  // Púrpura vibrante
+    
+    /// Array con todos los colores de la paleta (útil para gráficos)
+    static let palette: [Color] = [
+        blue,
+        red,
+        yellow,
+        teal,
+        orange,
+        pink,
+        green,
+        purple
+    ]
+    
+    // MARK: - Container Colors
+    /// Colores para containers de cards (gris neutro distinguible del fondo)
+    
+    static let containerDark = Color(hex: "#1A1A1A")
+    static let containerLight = Color(hex: "#F2F2F7")
+    
+    static let containerSecondaryDark = Color(hex: "#262626")
+    static let containerSecondaryLight = Color(hex: "#E5E5EA")
 }
 
 // MARK: - Color Extension for Hex Support

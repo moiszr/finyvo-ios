@@ -208,7 +208,7 @@ private struct MainTabView: View {
                 
                 Tab(value: TabSelection.more) {
                     if let section = activeSecondarySection {
-                        PlaceholderView(title: section.title, icon: section.icon)
+                        CategoriesView()
                     } else {
                         Color.clear
                     }
