@@ -85,7 +85,7 @@ final class Category {
     
     /// Color de la categoría
     var color: FCardColor {
-        get { FCardColor(rawValue: colorRaw) ?? .blue }
+        get { FCardColor(rawValue: colorRaw) ?? .white }
         set { colorRaw = newValue.rawValue }
     }
     

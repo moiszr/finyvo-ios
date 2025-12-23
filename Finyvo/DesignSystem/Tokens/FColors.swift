@@ -98,6 +98,8 @@ enum FColors {
     
     /// Array con todos los colores de la paleta (útil para gráficos)
     static let palette: [Color] = [
+        white,
+        gray,
         blue,
         red,
         yellow,
@@ -107,6 +109,31 @@ enum FColors {
         green,
         purple
     ]
+    
+    // MARK: - Neutral Palette (Adaptive)
+    // Neutrales premium que se adaptan a light/dark para funcionar como “blanco” y “gris”
+    // dentro de una paleta vibrante sin perder contraste ni estética.
+
+    static let white = Color(uiColor: UIColor { trait in
+        if trait.userInterfaceStyle == .dark {
+            // “white” premium en dark (no puro para evitar glare)
+            return UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1.0)
+        } else {
+            // En light, “white” se convierte en near-black premium
+            // para que funcione como opción neutral fuerte.
+            return UIColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1.0)
+        }
+    })
+
+    static let gray = Color(uiColor: UIColor { trait in
+        if trait.userInterfaceStyle == .dark {
+            // Gris claro en dark (para que se note sobre fondo oscuro)
+            return UIColor(red: 0.70, green: 0.72, blue: 0.76, alpha: 1.0)
+        } else {
+            // Gris oscuro en light
+            return UIColor(red: 0.34, green: 0.36, blue: 0.40, alpha: 1.0)
+        }
+    })
     
     // MARK: - Container Colors
     /// Colores para containers de cards (gris neutro distinguible del fondo)

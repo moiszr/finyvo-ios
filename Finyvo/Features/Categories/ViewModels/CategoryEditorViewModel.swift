@@ -51,11 +51,6 @@ final class CategoryEditorViewModel {
     var icon: FCategoryIcon = .other {
         didSet {
             guard oldValue != icon else { return }
-            
-            // Auto-sugerir color si no fue seleccionado manualmente
-            if !colorSetManually {
-                updateSuggestedColor()
-            }
         }
     }
     
@@ -66,11 +61,8 @@ final class CategoryEditorViewModel {
     var type: CategoryType = .expense {
         didSet {
             guard oldValue != type else { return }
-            
-            // Actualizar color sugerido si no fue manual
-            if !colorSetManually {
-                updateSuggestedColor()
-            }
+            // ✅ Importante: NO cambiamos color aquí.
+            // El tipo solo cambia el tipo, el color se mantiene.
         }
     }
     
@@ -179,7 +171,7 @@ final class CategoryEditorViewModel {
     convenience init(suggestedType: CategoryType) {
         self.init(mode: .create)
         self.type = suggestedType
-        updateSuggestedColor()
+        // updateSuggestedColor()
     }
     
     /// Inicializa en modo editar.
@@ -210,7 +202,7 @@ final class CategoryEditorViewModel {
     
     private func applyDefaults() {
         icon = .other
-        color = .blue
+        color = .white
         type = .expense
         iconSetManually = false
         colorSetManually = false
@@ -239,10 +231,6 @@ final class CategoryEditorViewModel {
     func resetIconToSuggestion() {
         iconSetManually = false
         updateSuggestedIcon()
-        
-        if !colorSetManually {
-            updateSuggestedColor()
-        }
     }
     
     /// Actualiza el icono basándose en el nombre.
@@ -268,12 +256,6 @@ final class CategoryEditorViewModel {
     /// Resetea el color a la sugerencia automática.
     func resetColorToSuggestion() {
         colorSetManually = false
-        updateSuggestedColor()
-    }
-    
-    /// Actualiza el color basándose en el icono y tipo.
-    private func updateSuggestedColor() {
-        color = IconSuggestionEngine.suggestColor(for: icon, type: type)
     }
     
     // MARK: - Type Actions
@@ -493,51 +475,6 @@ enum IconSuggestionEngine {
         }
         
         return .other
-    }
-    
-    // MARK: - Color Suggestions
-    
-    /// Sugiere un color basándose en el icono y tipo.
-    ///
-    /// - Parameters:
-    ///   - icon: Icono seleccionado
-    ///   - type: Tipo de categoría
-    /// - Returns: Color sugerido
-    static func suggestColor(for icon: FCategoryIcon, type: CategoryType) -> FCardColor {
-        // Primero intentar por icono
-        switch icon {
-        case .food:
-            return .orange
-        case .transport:
-            return .blue
-        case .entertainment:
-            return .purple
-        case .shopping:
-            return .pink
-        case .services:
-            return .yellow
-        case .health:
-            return .red
-        case .education:
-            return .teal
-        case .home:
-            return .orange
-        case .clothing:
-            return .pink
-        case .salary:
-            return .green
-        case .freelance:
-            return .blue
-        case .investments:
-            return .teal
-        case .gifts:
-            return .pink
-        case .refund:
-            return .yellow
-        case .other:
-            // Fallback por tipo
-            return type == .income ? .green : .blue
-        }
     }
     
     // MARK: - Helpers

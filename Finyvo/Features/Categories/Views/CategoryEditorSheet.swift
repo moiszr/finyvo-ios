@@ -159,7 +159,7 @@ struct CategoryEditorSheet: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .semibold))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                    .foregroundStyle(FColors.textPrimary)
             }
             .accessibilityLabel("Cerrar")
         }
@@ -176,7 +176,7 @@ struct CategoryEditorSheet: View {
                     Task { @MainActor in hideKeyboard() }
                 }
                 .font(.body.weight(.semibold))
-                .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                .foregroundStyle(FColors.textPrimary)
             } else {
                 EmptyView()
             }
@@ -295,9 +295,6 @@ struct CategoryEditorSheet: View {
                 height: 48
             )
             .opacity(editor.isSystemCategory ? 0.6 : 1)
-            .onChange(of: editor.type) { _, newValue in
-                editor.selectType(newValue)
-            }
         }
     }
 
@@ -364,7 +361,7 @@ struct CategoryEditorSheet: View {
                         HStack(spacing: 6) {
                             Image(systemName: "sparkles")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(FColors.brand)
+                                .foregroundStyle(FColors.textSecondary)
 
                             Text("Autocategorización")
                                 .font(.subheadline.weight(.semibold))
@@ -426,7 +423,7 @@ struct CategoryEditorSheet: View {
     private var saveButton: some View {
         FButton(
             mode.isEditing ? "Guardar cambios" : "Crear categoría",
-            variant: .brand,
+            variant: .primary,
             size: .large,
             isFullWidth: true,
             icon: mode.isEditing ? "checkmark" : "plus",
@@ -582,235 +579,6 @@ private struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Icon Color Picker Sheet
-
-struct IconColorPickerSheet: View {
-    @Binding var selectedIcon: FCategoryIcon
-    @Binding var selectedColor: FCardColor
-    var onIconSelect: (FCategoryIcon) -> Void
-    var onColorSelect: (FCardColor) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
-
-    @State private var selectedTab: Int = 0
-
-    private let expenseIcons: [(FCategoryIcon, String)] = [
-        (.food, "Comida"), (.transport, "Transporte"), (.entertainment, "Ocio"),
-        (.shopping, "Compras"), (.services, "Servicios"), (.health, "Salud"),
-        (.education, "Educación"), (.home, "Hogar"), (.clothing, "Ropa")
-    ]
-    
-    private let incomeIcons: [(FCategoryIcon, String)] = [
-        (.salary, "Salario"), (.freelance, "Freelance"), (.investments, "Inversiones"),
-        (.gifts, "Regalos"), (.refund, "Reembolsos")
-    ]
-    
-    private let otherIcons: [(FCategoryIcon, String)] = [
-        (.other, "Otros")
-    ]
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: FSpacing.lg) {
-                previewSection
-                    .padding(.horizontal, FSpacing.lg)
-                    .padding(.top, FSpacing.md)
-
-                Picker("", selection: $selectedTab) {
-                    Text("Icono").tag(0)
-                    Text("Color").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, FSpacing.lg)
-
-                ScrollView {
-                    if selectedTab == 0 {
-                        iconGrid
-                    } else {
-                        colorGrid
-                    }
-                }
-            }
-            .background(FColors.background)
-            .navigationTitle("Personalizar")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Listo") { dismiss() }
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(FColors.brand)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(.regularMaterial)
-        .presentationCornerRadius(24)
-    }
-
-    private var previewSection: some View {
-        HStack(spacing: FSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(selectedColor.color.opacity(0.15))
-                    .frame(width: 80, height: 80)
-
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(Circle().fill(selectedColor.color.opacity(0.2)))
-                    .frame(width: 64, height: 64)
-                    .overlay(
-                        Image(systemName: selectedIcon.systemName)
-                            .font(.system(size: 26, weight: .semibold))
-                            .foregroundStyle(selectedColor.color)
-                    )
-                    .shadow(color: selectedColor.color.opacity(0.3), radius: 8, y: 4)
-            }
-
-            VStack(alignment: .leading, spacing: FSpacing.xs) {
-                Text("Vista previa")
-                    .font(.caption)
-                    .foregroundStyle(FColors.textTertiary)
-
-                Text(iconName(selectedIcon))
-                    .font(.headline)
-                    .foregroundStyle(FColors.textPrimary)
-
-                Text(selectedColor.displayName)
-                    .font(.subheadline)
-                    .foregroundStyle(selectedColor.color)
-            }
-
-            Spacer()
-        }
-        .padding(FSpacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: FRadius.lg)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
-        )
-    }
-
-    private var iconGrid: some View {
-        VStack(alignment: .leading, spacing: FSpacing.lg) {
-            iconSection(title: "Gastos", icons: expenseIcons)
-            iconSection(title: "Ingresos", icons: incomeIcons)
-            iconSection(title: "General", icons: otherIcons)
-        }
-        .padding(.horizontal, FSpacing.lg)
-        .padding(.bottom, FSpacing.xxl)
-    }
-
-    private func iconSection(title: String, icons: [(FCategoryIcon, String)]) -> some View {
-        VStack(alignment: .leading, spacing: FSpacing.sm) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(FColors.textSecondary)
-
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: FSpacing.md), count: 5),
-                spacing: FSpacing.md
-            ) {
-                ForEach(icons, id: \.0) { icon, _ in
-                    iconButton(icon)
-                }
-            }
-        }
-    }
-
-    private func iconButton(_ icon: FCategoryIcon) -> some View {
-        let isSelected = icon == selectedIcon
-
-        return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                selectedIcon = icon
-                onIconSelect(icon)
-            }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: FRadius.md)
-                    .fill(
-                        isSelected
-                            ? selectedColor.color.opacity(0.2)
-                            : (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
-                    )
-
-                if isSelected {
-                    RoundedRectangle(cornerRadius: FRadius.md)
-                        .stroke(selectedColor.color, lineWidth: 2)
-                }
-
-                Image(systemName: icon.systemName)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isSelected ? selectedColor.color : FColors.textSecondary)
-            }
-            .frame(height: 56)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var colorGrid: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: FSpacing.md), count: 4),
-            spacing: FSpacing.lg
-        ) {
-            ForEach(FCardColor.allCases) { color in
-                colorButton(color)
-            }
-        }
-        .padding(.horizontal, FSpacing.lg)
-        .padding(.bottom, FSpacing.xxl)
-    }
-
-    private func colorButton(_ color: FCardColor) -> some View {
-        let isSelected = color == selectedColor
-
-        return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                selectedColor = color
-                onColorSelect(color)
-            }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        } label: {
-            VStack(spacing: FSpacing.xs) {
-                ZStack {
-                    if isSelected {
-                        Circle()
-                            .stroke(FColors.brand, lineWidth: 3)
-                            .frame(width: 56, height: 56)
-                    }
-
-                    Circle()
-                        .fill(color.color)
-                        .frame(width: 48, height: 48)
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.3), lineWidth: 1)
-                        )
-
-                    if isSelected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-                    }
-                }
-                .shadow(color: isSelected ? color.color.opacity(0.4) : .clear, radius: 8, y: 4)
-
-                Text(color.displayName)
-                    .font(.caption2)
-                    .foregroundStyle(isSelected ? FColors.textPrimary : FColors.textSecondary)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func iconName(_ icon: FCategoryIcon) -> String {
-        let all = expenseIcons + incomeIcons + otherIcons
-        return all.first { $0.0 == icon }?.1 ?? "Icono"
-    }
-}
-
 // MARK: - Auto Categorization Info Sheet
 
 private struct AutoCategorizationInfoSheet: View {
@@ -855,7 +623,7 @@ private struct AutoCategorizationInfoSheet: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
 
-            FButton("Entendido", variant: .brand, size: .large, isFullWidth: true) {
+            FButton("Entendido", variant: .primary, size: .large, isFullWidth: true) {
                 onClose()
             }
             .padding(.horizontal, FSpacing.lg)
@@ -879,23 +647,14 @@ private struct AutoCategorizationInfoSheet: View {
 
     private var header: some View {
         HStack(spacing: FSpacing.md) {
-            // 🔵 Icono redondo
-            ZStack {
-                Circle()
-                    .fill(FColors.brand.opacity(colorScheme == .dark ? 0.20 : 0.14))
-                    .frame(width: 52, height: 52)
-                    .overlay(
-                        Circle()
-                            .stroke(
-                                Color.white.opacity(colorScheme == .dark ? 0.20 : 0.35),
-                                lineWidth: 0.5
-                            )
-                    )
 
-                Image(systemName: "sparkles")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(FColors.brand)
-            }
+            // Slot fijo para mantener alineación (sin círculo visible)
+            Image(systemName: "sparkles")
+                .font(.title2.weight(.semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(FColors.textPrimary)
+                .frame(width: 52, height: 52, alignment: .center)
+                .contentShape(Rectangle()) // opcional: hace el área “tocable” uniforme
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Autocategorización")
@@ -903,9 +662,8 @@ private struct AutoCategorizationInfoSheet: View {
                     .foregroundStyle(FColors.textPrimary)
                     .tracking(-0.2)
 
-                // 🔠 Subtítulo corto y un poco más pequeño
                 Text("Haz que Finyvo aprenda de tus movimientos.")
-                    .font(.footnote) // antes .subheadline
+                    .font(.footnote)
                     .foregroundStyle(FColors.textSecondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -917,6 +675,7 @@ private struct AutoCategorizationInfoSheet: View {
         .padding(.top, FSpacing.lg)
         .padding(.bottom, FSpacing.sm)
     }
+
     
     // MARK: - Info Item
 
@@ -929,7 +688,7 @@ private struct AutoCategorizationInfoSheet: View {
                 
                 Image(systemName: icon)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FColors.brand)
+                    .foregroundStyle(FColors.textSecondary)
             }
             
             VStack(alignment: .leading, spacing: 4) {

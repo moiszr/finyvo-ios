@@ -10,108 +10,6 @@
 
 import SwiftUI
 
-// MARK: - Card Color
-
-/// Colores disponibles para las cards de categoría.
-/// Usa los colores definidos en FColors.palette
-enum FCardColor: String, CaseIterable, Identifiable {
-    case blue
-    case red
-    case yellow
-    case teal
-    case orange
-    case pink
-    case green
-    case purple
-    
-    var id: String { rawValue }
-    
-    /// Color principal desde FColors
-    var color: Color {
-        switch self {
-        case .blue:   return FColors.blue
-        case .red:    return FColors.red
-        case .yellow: return FColors.yellow
-        case .teal:   return FColors.teal
-        case .orange: return FColors.orange
-        case .pink:   return FColors.pink
-        case .green:  return FColors.green
-        case .purple: return FColors.purple
-        }
-    }
-    
-    /// Color de fondo para el inner card
-    func cardBackground(for scheme: ColorScheme) -> Color {
-        scheme == .dark
-            ? color.opacity(0.15)
-            : color.opacity(0.12)
-    }
-    
-    /// Gradiente para el inner card
-    func cardGradient(for scheme: ColorScheme) -> LinearGradient {
-        let base = cardBackground(for: scheme)
-        return LinearGradient(
-            colors: [base, base.opacity(0.6)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-    
-    /// Color del texto principal
-    func textColor(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? .white : Color(hex: "#1A1A1A")
-    }
-    
-    /// Color del texto secundario
-    func secondaryTextColor(for scheme: ColorScheme) -> Color {
-        scheme == .dark
-            ? Color.white.opacity(0.6)
-            : Color.black.opacity(0.5)
-    }
-    
-    /// Nombre para display
-    var displayName: String {
-        switch self {
-        case .blue:   return "Azul"
-        case .red:    return "Rojo"
-        case .yellow: return "Amarillo"
-        case .teal:   return "Turquesa"
-        case .orange: return "Naranja"
-        case .pink:   return "Rosa"
-        case .green:  return "Verde"
-        case .purple: return "Púrpura"
-        }
-    }
-}
-
-// MARK: - Category Icon
-
-/// Iconos SF Symbols para categorías
-enum FCategoryIcon: String, CaseIterable {
-    // Gastos
-    case food = "fork.knife"
-    case transport = "car.fill"
-    case entertainment = "tv.fill"
-    case shopping = "bag.fill"
-    case services = "bolt.fill"
-    case health = "heart.fill"
-    case education = "book.fill"
-    case home = "house.fill"
-    case clothing = "tshirt.fill"
-    
-    // Ingresos
-    case salary = "banknote.fill"
-    case freelance = "laptopcomputer"
-    case investments = "chart.line.uptrend.xyaxis"
-    case gifts = "gift.fill"
-    case refund = "arrow.uturn.backward"
-    
-    // Genérico
-    case other = "square.grid.2x2.fill"
-    
-    var systemName: String { rawValue }
-}
-
 // MARK: - Card Data Model
 
 /// Modelo de datos para el card
@@ -545,57 +443,57 @@ private let cardWidth: CGFloat = 170
         .frame(width: cardWidth)
     }
 }
-
-#Preview("All Colors - Dark (Neutral Inner)") {
-    ScrollView {
-        LazyVGrid(
-            columns: [GridItem(.fixed(cardWidth)), GridItem(.fixed(cardWidth))],
-            spacing: 16
-        ) {
-            ForEach(FCardColor.allCases) { color in
-                FCardCategoryView(
-                    data: FCardData(
-                        name: color.displayName,
-                        icon: .other,
-                        color: color,
-                        budget: 5000,
-                        spent: Double.random(in: 1000...4500),
-                        isFavorite: color == .blue,
-                        transactionCount: Int.random(in: 3...20)
-                    )
-                )
-            }
-        }
-        .padding()
-    }
-    .background(Color.black)
-    .preferredColorScheme(.dark)
-}
-
-#Preview("All Colors - Light (Neutral Inner)") {
-    ScrollView {
-        LazyVGrid(
-            columns: [GridItem(.fixed(cardWidth)), GridItem(.fixed(cardWidth))],
-            spacing: 16
-        ) {
-            ForEach(FCardColor.allCases) { color in
-                FCardCategoryView(
-                    data: FCardData(
-                        name: color.displayName,
-                        icon: .other,
-                        color: color,
-                        budget: 5000,
-                        spent: Double.random(in: 1000...4500),
-                        isFavorite: color == .purple,
-                        transactionCount: Int.random(in: 3...20)
-                    )
-                )
-            }
-        }
-        .padding()
-    }
-    .background(Color.white)
-}
+//
+//#Preview("All Colors - Dark (Neutral Inner)") {
+//    ScrollView {
+//        LazyVGrid(
+//            columns: [GridItem(.fixed(cardWidth)), GridItem(.fixed(cardWidth))],
+//            spacing: 16
+//        ) {
+//            ForEach(FCardColor.allCases) { color in
+//                FCardCategoryView(
+//                    data: FCardData(
+//                        name: color.displayName(for: colorScheme),
+//                        icon: .other,
+//                        color: color,
+//                        budget: 5000,
+//                        spent: Double.random(in: 1000...4500),
+//                        isFavorite: color == .blue,
+//                        transactionCount: Int.random(in: 3...20)
+//                    )
+//                )
+//            }
+//        }
+//        .padding()
+//    }
+//    .background(Color.black)
+//    .preferredColorScheme(.dark)
+//}
+//
+//#Preview("All Colors - Light (Neutral Inner)") {
+//    ScrollView {
+//        LazyVGrid(
+//            columns: [GridItem(.fixed(cardWidth)), GridItem(.fixed(cardWidth))],
+//            spacing: 16
+//        ) {
+//            ForEach(FCardColor.allCases) { color in
+//                FCardCategoryView(
+//                    data: FCardData(
+//                        name: color.displayName,
+//                        icon: .other,
+//                        color: color,
+//                        budget: 5000,
+//                        spent: Double.random(in: 1000...4500),
+//                        isFavorite: color == .purple,
+//                        transactionCount: Int.random(in: 3...20)
+//                    )
+//                )
+//            }
+//        }
+//        .padding()
+//    }
+//    .background(Color.white)
+//}
 
 #Preview("With vs Without Budget") {
     HStack(spacing: 16) {
