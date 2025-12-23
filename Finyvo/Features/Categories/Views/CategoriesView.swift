@@ -3,7 +3,7 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/11/25.
-//  Refactored: Uses simplified Category model with FCategoryIcon and FCardColor.
+//  Refactored: Premium "Silent Canvas" design aligned with Editor.
 //
 
 import SwiftUI
@@ -11,7 +11,6 @@ import SwiftData
 
 // MARK: - Categories View
 
-/// Vista principal de categorías con diseño premium Finyvo.
 struct CategoriesView: View {
     
     // MARK: - Environment
@@ -38,109 +37,105 @@ struct CategoriesView: View {
         ]
         
         let activeExpensePredicate: Predicate<Category> = #Predicate { category in
-            category.parent == nil &&
-            !category.isArchived &&
-            category.typeRaw == "expense"
+            category.parent == nil && !category.isArchived && category.typeRaw == "expense"
         }
-        
-        _expenseCategories = Query(
-            filter: activeExpensePredicate,
-            sort: sortDescriptors
-        )
+        _expenseCategories = Query(filter: activeExpensePredicate, sort: sortDescriptors)
         
         let activeIncomePredicate: Predicate<Category> = #Predicate { category in
-            category.parent == nil &&
-            !category.isArchived &&
-            category.typeRaw == "income"
+            category.parent == nil && !category.isArchived && category.typeRaw == "income"
         }
-        
-        _incomeCategories = Query(
-            filter: activeIncomePredicate,
-            sort: sortDescriptors
-        )
+        _incomeCategories = Query(filter: activeIncomePredicate, sort: sortDescriptors)
         
         let archivedExpensePredicate: Predicate<Category> = #Predicate { category in
-            category.parent == nil &&
-            category.isArchived &&
-            category.typeRaw == "expense"
+            category.parent == nil && category.isArchived && category.typeRaw == "expense"
         }
-        
-        _archivedExpenseCategories = Query(
-            filter: archivedExpensePredicate,
-            sort: sortDescriptors
-        )
+        _archivedExpenseCategories = Query(filter: archivedExpensePredicate, sort: sortDescriptors)
         
         let archivedIncomePredicate: Predicate<Category> = #Predicate { category in
-            category.parent == nil &&
-            category.isArchived &&
-            category.typeRaw == "income"
+            category.parent == nil && category.isArchived && category.typeRaw == "income"
         }
-        
-        _archivedIncomeCategories = Query(
-            filter: archivedIncomePredicate,
-            sort: sortDescriptors
-        )
+        _archivedIncomeCategories = Query(filter: archivedIncomePredicate, sort: sortDescriptors)
     }
     
-    // MARK: - Computed
+    // MARK: - Computed Properties
     
     private var filteredCategories: [Category] {
         if viewModel.showArchived {
             return archivedExpenseCategories + archivedIncomeCategories
         }
-        
         switch viewModel.selectedType {
-        case .expense:
-            return expenseCategories
-        case .income:
-            return incomeCategories
-        case .none:
-            return expenseCategories
+        case .expense: return expenseCategories
+        case .income: return incomeCategories
+        case .none: return expenseCategories
         }
     }
     
-    private var isEmpty: Bool {
-        expenseCategories.isEmpty && incomeCategories.isEmpty
-    }
-    
-    private var expenseCount: Int {
-        expenseCategories.count
-    }
-    
-    private var incomeCount: Int {
-        incomeCategories.count
-    }
-    
-    private var archivedCount: Int {
-        archivedExpenseCategories.count + archivedIncomeCategories.count
-    }
+    private var isEmpty: Bool { expenseCategories.isEmpty && incomeCategories.isEmpty }
+    private var expenseCount: Int { expenseCategories.count }
+    private var incomeCount: Int { incomeCategories.count }
+    private var archivedCount: Int { archivedExpenseCategories.count + archivedIncomeCategories.count }
     
     // MARK: - Body
     
     var body: some View {
         NavigationStack {
             ZStack {
+                // Fondo General
                 FColors.background.ignoresSafeArea()
-                content
+                
+                // Contenido Principal
+                if isEmpty && !viewModel.showArchived {
+                    emptyState(
+                        icon: "square.grid.2x2.fill",
+                        title: "Tu espacio está vacío",
+                        message: "Crea tu primera categoría para empezar a organizar tus finanzas.",
+                        showButton: true
+                    )
+                } else {
+                    mainScrollView
+                }
             }
             .navigationTitle("Categorías")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        // TODO: Implementar lógica de Atras.
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(FColors.textPrimary)
+                    }
+                    .accessibilityLabel("Atras")
+                }
+                
+                // Botón Tags (A la izquierda del más)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        // TODO: Implementar lógica de Tags
+                    } label: {
+                        Image(systemName: "tag")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(FColors.textPrimary)
+                    }
+                    .accessibilityLabel("Etiquetas")
+                }
+                
+                // Botón Crear Categoría (Principal / Derecha)
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         viewModel.presentCreate()
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(FColors.textPrimary)
                     }
                     .accessibilityLabel("Crear categoría")
                 }
             }
+            // Sheets y Alertas
             .sheet(isPresented: $viewModel.isEditorPresented) {
-                CategoryEditorSheet(
-                    viewModel: viewModel,
-                    mode: viewModel.editorMode
-                )
+                CategoryEditorSheet(viewModel: viewModel, mode: viewModel.editorMode)
             }
             .sheet(isPresented: $viewModel.isDetailPresented) {
                 if let category = viewModel.selectedCategory {
@@ -149,33 +144,26 @@ struct CategoriesView: View {
             }
             .alert("Archivar categoría", isPresented: $viewModel.isArchiveAlertPresented) {
                 Button("Cancelar", role: .cancel) {}
-                Button("Archivar", role: .destructive) {
-                    viewModel.confirmArchive()
-                }
+                Button("Archivar", role: .destructive) { viewModel.confirmArchive() }
             } message: {
                 Text("La categoría se ocultará pero sus transacciones se mantendrán intactas.")
             }
             .alert("Eliminar categoría", isPresented: $viewModel.isDeleteAlertPresented) {
                 Button("Cancelar", role: .cancel) {}
-                Button("Eliminar", role: .destructive) {
-                    viewModel.confirmDelete()
-                }
+                Button("Eliminar", role: .destructive) { viewModel.confirmDelete() }
             } message: {
                 Text("Esta acción no se puede deshacer.")
             }
             .overlay(alignment: .top) {
                 if let error = viewModel.error {
-                    ErrorBanner(message: error.localizedDescription) {
-                        viewModel.error = nil
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, 4)
+                    ErrorBanner(message: error.localizedDescription) { viewModel.error = nil }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, 4)
                 }
             }
         }
         .onAppear {
             viewModel.configure(with: modelContext)
-            
             if !hasInitialized {
                 viewModel.setTypeFilter(.expense)
                 hasInitialized = true
@@ -183,62 +171,53 @@ struct CategoriesView: View {
         }
     }
     
-    // MARK: - Content
+    // MARK: - Main Scroll Content
     
-    @ViewBuilder
-    private var content: some View {
-        if isEmpty && !viewModel.showArchived {
-            emptyState(
-                icon: "square.grid.2x2.fill",
-                title: "Crea tu primera categoría",
-                message: "Empieza con algo simple: Comida, Transporte, Suscripciones… Luego Finyvo hará el resto.",
-                showButton: true
-            )
-        } else {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: FSpacing.xxl) {
-                    filterSection
-                        .padding(.top, FSpacing.md)
+    private var mainScrollView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: FSpacing.xl) {
+                
+                // Filtros (Pills)
+                filterSection
+                    .padding(.top, FSpacing.sm)
+                
+                // Contenido Variable
+                if viewModel.showArchived && archivedCount == 0 {
+                    emptyState(
+                        icon: "archivebox",
+                        title: "Nada archivado",
+                        message: "Las categorías que archives aparecerán aquí.",
+                        showButton: false
+                    )
+                    .padding(.top, FSpacing.xl)
                     
-                    if viewModel.showArchived && archivedCount == 0 {
-                        emptyState(
-                            icon: "archivebox",
-                            title: "Sin categorías archivadas",
-                            message: "Las categorías que archives aparecerán aquí. Podrás restaurarlas cuando quieras.",
-                            showButton: false
-                        )
-                        .padding(.top, FSpacing.lg)
-                    } else if filteredCategories.isEmpty {
-                        emptyState(
-                            icon: "tray",
-                            title: "Sin categorías",
-                            message: "No tienes categorías de este tipo. Crea una para empezar a organizar tus finanzas.",
-                            showButton: true
-                        )
-                        .padding(.top, FSpacing.lg)
-                    } else {
-                        categoriesGrid
-                    }
+                } else if filteredCategories.isEmpty {
+                    emptyState(
+                        icon: "tray",
+                        title: "Sin categorías",
+                        message: "No hay categorías de este tipo.",
+                        showButton: true
+                    )
+                    .padding(.top, FSpacing.xl)
+                    
+                } else {
+                    categoriesGrid
                 }
-                .padding(.bottom, 100)
             }
         }
     }
     
-    // MARK: - Filter Section
+    // MARK: - Filter Section (Premium)
     
     private var filterSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: FSpacing.sm) {
+            HStack(spacing: 8) { // Spacing más apretado y limpio
                 FilterPill(
                     title: "Gastos",
                     count: expenseCount,
                     isSelected: !viewModel.showArchived && viewModel.selectedType == .expense
                 ) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        viewModel.showArchived = false
-                        viewModel.setTypeFilter(.expense)
-                    }
+                    filterAction(.expense)
                 }
                 
                 FilterPill(
@@ -246,29 +225,37 @@ struct CategoriesView: View {
                     count: incomeCount,
                     isSelected: !viewModel.showArchived && viewModel.selectedType == .income
                 ) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        viewModel.showArchived = false
-                        viewModel.setTypeFilter(.income)
-                    }
+                    filterAction(.income)
                 }
+                
+                // Separador visual sutil
+                Rectangle()
+                    .fill(Color.primary.opacity(0.1))
+                    .frame(width: 1, height: 20)
+                    .padding(.horizontal, 4)
                 
                 FilterPill(
                     title: "Archivadas",
                     count: archivedCount,
                     isSelected: viewModel.showArchived
                 ) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        viewModel.showArchived = true
-                        viewModel.setTypeFilter(nil)
-                    }
+                    filterAction(nil, archived: true)
                 }
             }
             .padding(.horizontal, FSpacing.lg)
-            .padding(.vertical, FSpacing.sm)
+            .padding(.vertical, 8)
         }
     }
     
-    // MARK: - Categories Grid
+    private func filterAction(_ type: CategoryType?, archived: Bool = false) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            viewModel.showArchived = archived
+            viewModel.setTypeFilter(type)
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+    
+    // MARK: - Grid
     
     private var categoriesGrid: some View {
         LazyVGrid(
@@ -286,75 +273,50 @@ struct CategoriesView: View {
         .padding(.bottom, FSpacing.lg)
     }
     
-    // MARK: - Empty State
+    // MARK: - Empty State (Minimalista)
     
-    private func emptyState(
-        icon: String,
-        title: String,
-        message: String,
-        showButton: Bool
-    ) -> some View {
-        VStack(spacing: FSpacing.xxl) {
-            Spacer()
+    private func emptyState(icon: String, title: String, message: String, showButton: Bool) -> some View {
+        VStack(spacing: FSpacing.md) {
+            Spacer(minLength: 40)
             
-            ZStack {
-                RoundedRectangle(cornerRadius: 32)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                FColors.backgroundSecondary,
-                                FColors.backgroundSecondary.opacity(colorScheme == .dark ? 0.2 : 0.5)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 32)
-                            .stroke(FColors.separator.opacity(0.4), lineWidth: 1)
-                    )
-                
-                VStack(spacing: FSpacing.lg) {
-                    ZStack {
-                        Circle()
-                            .fill(FColors.brand.opacity(0.12))
-                            .frame(width: 80, height: 80)
-                        
-                        Image(systemName: icon)
-                            .font(.system(size: 32, weight: .semibold))
-                            .foregroundStyle(FColors.brand)
-                    }
-                    
-                    VStack(spacing: FSpacing.sm) {
-                        Text(title)
-                            .font(.headline)
-                            .foregroundStyle(FColors.textPrimary)
-                        
-                        Text(message)
-                            .font(.subheadline)
-                            .foregroundStyle(FColors.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, FSpacing.lg)
-                    }
-                    
-                    if showButton {
-                        FButton("Crear categoría", variant: .brand, isFullWidth: false) {
-                            viewModel.presentCreate()
-                        }
-                        .padding(.top, FSpacing.sm)
-                    }
-                }
-                .padding(.vertical, FSpacing.xxxl)
+            Image(systemName: icon)
+                .font(.system(size: 40))
+                .foregroundStyle(FColors.textTertiary)
+                .padding(.bottom, 8)
+            
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(FColors.textPrimary)
+            
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(FColors.textSecondary)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, FSpacing.xxxl)
+            
+            if showButton {
+                Button {
+                    viewModel.presentCreate()
+                } label: {
+                    Text("Crear ahora")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(FColors.textPrimary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule()
+                                .stroke(FColors.border, lineWidth: 1)
+                        )
+                }
+                .padding(.top, FSpacing.sm)
             }
-            .padding(.horizontal, FSpacing.lg)
             
             Spacer()
         }
     }
 }
 
-// MARK: - Filter Pill
+// MARK: - Filter Pill (Diseño Neutro Premium)
 
 private struct FilterPill: View {
     let title: String
@@ -364,61 +326,41 @@ private struct FilterPill: View {
     
     @Environment(\.colorScheme) private var colorScheme
     
-    private var backgroundColor: Color {
-        if isSelected {
-            return FColors.brand
-        }
-        return colorScheme == .dark
-            ? FColors.backgroundSecondary
-            : Color.white
-    }
-    
-    private var borderColor: Color {
-        if isSelected {
-            return Color.clear
-        }
-        return colorScheme == .dark
-            ? Color.white.opacity(0.10)
-            : Color.black.opacity(0.06)
-    }
-    
-    private var textColor: Color {
-        isSelected ? .white : FColors.textSecondary
-    }
-    
-    private var countBackgroundColor: Color {
-        if isSelected {
-            return Color.white.opacity(0.24)
-        }
-        return colorScheme == .dark
-            ? Color.white.opacity(0.06)
-            : Color.black.opacity(0.04)
-    }
-    
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(.subheadline, design: .rounded).weight(.medium))
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
                 
-                if let count = count {
+                if let count = count, count > 0 {
                     Text("\(count)")
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        // Texto invertido si está seleccionado
+                        .foregroundStyle(isSelected ? (colorScheme == .dark ? .black : .white) : FColors.textSecondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Capsule().fill(countBackgroundColor))
+                        .background(
+                            Capsule()
+                                .fill(isSelected
+                                      ? (colorScheme == .dark ? Color.white.opacity(0.9) : Color.white.opacity(0.3))
+                                      : FColors.backgroundTertiary)
+                        )
                 }
             }
-            .foregroundStyle(textColor)
-            .padding(.horizontal, FSpacing.md)
-            .padding(.vertical, FSpacing.sm)
+            // Texto principal: Blanco/Negro si seleccionado, Gris si no
+            .foregroundStyle(isSelected ? (colorScheme == .dark ? .black : .white) : FColors.textSecondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .background(
                 Capsule()
-                    .fill(backgroundColor)
-                    .overlay(Capsule().stroke(borderColor, lineWidth: 1))
+                    .fill(
+                        isSelected
+                        ? FColors.textPrimary // Negro en Light, Blanco en Dark
+                        : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                    )
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ScaleButtonStyle()) // Animación al pulsar
     }
 }
 
@@ -428,128 +370,87 @@ private struct CategoryCardWrapper: View {
     let category: Category
     let viewModel: CategoriesViewModel
     
-    // MARK: - Card Data
-    
-    /// Ahora es directo - el modelo ya tiene icon y color correctos
+    // Mapeo directo al nuevo FCardData
     private var cardData: FCardData {
-        category.toCardData(
-            spent: 0,              // TODO: Conectar con transacciones reales
-            transactionCount: 0    // TODO: Conectar con transacciones reales
-        )
+        category.toCardData(spent: 0, transactionCount: 0) // TODO: Conectar real data
     }
-    
-    // MARK: - Body
     
     var body: some View {
         FCardCategoryView(data: cardData)
-            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22))
-            .onTapGesture {
-                viewModel.presentDetail(category)
-            }
-            .contextMenu {
-                contextMenuContent
-            }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: category.id)
+            // Forma para el menú contextual
+            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .onTapGesture { viewModel.presentDetail(category) }
+            .contextMenu { contextMenuContent }
+            // Animación sutil al aparecer
+            .transition(.scale(scale: 0.95).combined(with: .opacity))
     }
-    
-    // MARK: - Context Menu
     
     @ViewBuilder
     private var contextMenuContent: some View {
-        Button {
-            viewModel.presentEdit(category)
-        } label: {
+        Button { viewModel.presentEdit(category) } label: {
             Label("Editar", systemImage: "pencil")
         }
-        
-        Button {
-            viewModel.toggleFavorite(category)
-        } label: {
+        Button { viewModel.toggleFavorite(category) } label: {
             Label(
                 category.isFavorite ? "Quitar favorito" : "Favorito",
                 systemImage: category.isFavorite ? "star.slash" : "star"
             )
         }
-        
-        Button {
-            viewModel.duplicateCategory(category)
-        } label: {
-            Label("Duplicar", systemImage: "doc.on.doc")
+        Button { viewModel.duplicateCategory(category) } label: {
+            Label("Duplicar", systemImage: "plus.square.on.square")
         }
-        
         Divider()
-        
-        if category.isArchived {
-            Button {
-                viewModel.restoreCategory(category)
-            } label: {
-                Label("Restaurar", systemImage: "arrow.uturn.backward")
-            }
-        }
-        
         if !category.isSystem {
-            if category.isArchived {
-                Button(role: .destructive) {
-                    viewModel.presentDeleteAlert(category)
-                } label: {
-                    Label("Eliminar", systemImage: "trash")
-                }
-            } else {
-                Button(role: .destructive) {
-                    viewModel.presentArchiveAlert(category)
-                } label: {
-                    Label("Archivar", systemImage: "archivebox")
-                }
+            Button(role: .destructive) {
+                category.isArchived
+                    ? viewModel.presentDeleteAlert(category)
+                    : viewModel.presentArchiveAlert(category)
+            } label: {
+                Label(
+                    category.isArchived ? "Eliminar" : "Archivar",
+                    systemImage: category.isArchived ? "trash" : "archivebox"
+                )
             }
         }
     }
 }
 
-// MARK: - Error Banner
+// MARK: - Error Banner (Flotante)
 
 private struct ErrorBanner: View {
     let message: String
     let onClose: () -> Void
     
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(.white)
-                .imageScale(.small)
             
             Text(message)
-                .font(.caption.weight(.medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(2)
             
-            Spacer(minLength: 8)
-            
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-            .buttonStyle(.plain)
+            Spacer()
         }
-        .padding(.horizontal, FSpacing.lg)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 999, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.red.opacity(0.95),
-                            Color.red.opacity(0.8)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+            Capsule()
+                .fill(Color.red.opacity(0.95))
+                .shadow(color: Color.red.opacity(0.3), radius: 10, y: 5)
         )
-        .shadow(color: Color.red.opacity(0.35), radius: 18, x: 0, y: 10)
-        .padding(.horizontal, FSpacing.lg)
+        .padding(.horizontal, 24)
+        .onTapGesture { onClose() }
+    }
+}
+
+// MARK: - Helper: Scale Button Style
+private struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 

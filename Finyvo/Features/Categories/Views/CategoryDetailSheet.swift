@@ -3,20 +3,11 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/11/25.
-//  Refactored for FCategoryIcon and FCardColor with premium design.
+//  Premium "Silent Canvas" detail view with Interactive Chart.
 //
 
 import SwiftUI
 
-// MARK: - Category Detail Sheet
-
-/// Sheet de detalle de categoría con estadísticas y acciones.
-///
-/// ## Características
-/// - Hero section con icono SF Symbol
-/// - Estadísticas del mes actual
-/// - Progreso de presupuesto
-/// - Acciones rápidas
 struct CategoryDetailSheet: View {
     
     // MARK: - Properties
@@ -27,49 +18,59 @@ struct CategoryDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     
+    // MARK: - State
+    
+    @State private var selectedMonth: Date = Date()
+    
+    // MARK: - Layout Constants
+    
+    private let heroHeight: CGFloat = 260
+    
     // MARK: - Body
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: FSpacing.xl) {
-                    // Hero section
-                    heroSection
-                    
-                    // Stats section
-                    statsSection
-                    
-                    // Budget section
-                    if category.hasBudget {
-                        budgetSection
+            ZStack {
+                FColors.background.ignoresSafeArea()
+                
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: FSpacing.lg) {
+                        heroSection
+                        
+                        VStack(spacing: FSpacing.lg) {
+                            statsSection
+                            
+                            // Interactive Chart
+                            chartSection
+                            
+                            if category.hasBudget {
+                                budgetSection
+                            }
+                            
+                            if category.hasChildren {
+                                subcategoriesSection
+                            }
+                            
+                            if !category.keywords.isEmpty {
+                                keywordsSection
+                            }
+                            
+                            actionsSection
+                                .padding(.top, FSpacing.sm)
+                        }
+                        .padding(.horizontal, FSpacing.lg)
+                        .padding(.bottom, FSpacing.xl)
                     }
-                    
-                    // Keywords section
-                    if !category.keywords.isEmpty {
-                        keywordsSection
-                    }
-                    
-                    // Subcategories section
-                    if category.hasChildren {
-                        subcategoriesSection
-                    }
-                    
-                    // Actions section
-                    actionsSection
                 }
-                .padding(.horizontal, FSpacing.lg)
-                .padding(.vertical, FSpacing.lg)
             }
-            .background(FColors.background)
+            .ignoresSafeArea(edges: .top)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                toolbarContent
-            }
+            .toolbar { toolbarContent }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationBackground(.regularMaterial)
-        .presentationCornerRadius(24)
+        .presentationCornerRadius(32)
     }
     
     // MARK: - Toolbar
@@ -82,57 +83,63 @@ struct CategoryDetailSheet: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(FColors.textSecondary)
-                    .frame(width: 32, height: 32)
-                    .background(FColors.backgroundSecondary)
-                    .clipShape(Circle())
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(FColors.textPrimary)
             }
+            .accessibilityLabel("Cerrar")
         }
         
         ToolbarItem(placement: .primaryAction) {
             Button {
                 dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     viewModel.presentEdit(category)
                 }
             } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(FColors.textSecondary)
-                    .frame(width: 32, height: 32)
-                    .background(FColors.backgroundSecondary)
-                    .clipShape(Circle())
+                Text("Editar")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(FColors.textPrimary)
             }
+            .accessibilityLabel("Editar categoría")
         }
     }
     
     // MARK: - Hero Section
     
     private var heroSection: some View {
-        VStack(spacing: FSpacing.lg) {
-            // Icon with glow
-            ZStack {
-                // Glow
-                Circle()
-                    .fill(category.color.color.opacity(0.2))
-                    .frame(width: 120, height: 120)
-                    .blur(radius: 20)
-                
-                // Icon badge
+        ZStack {
+            category.color.color
+                .opacity(colorScheme == .dark ? 0.12 : 0.08)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 32,
+                        bottomLeadingRadius: 32,
+                        bottomTrailingRadius: 32,
+                        topTrailingRadius: 32
+                    )
+                )
+                .ignoresSafeArea(edges: .top)
+            
+            VStack(spacing: 16) {
                 ZStack {
+                    Circle()
+                        .fill(category.color.color.opacity(colorScheme == .dark ? 0.25 : 0.15))
+                        .frame(width: 88, height: 88)
+                        .blur(radius: 12)
+                    
                     Circle()
                         .fill(.ultraThinMaterial)
                         .overlay(
                             Circle()
-                                .fill(category.color.color.opacity(0.15))
+                                .fill(category.color.color.opacity(colorScheme == .dark ? 0.20 : 0.15))
                         )
                         .overlay(
                             Circle()
                                 .stroke(
                                     LinearGradient(
                                         colors: [
-                                            Color.white.opacity(colorScheme == .dark ? 0.3 : 0.8),
-                                            Color.white.opacity(colorScheme == .dark ? 0.05 : 0.2)
+                                            Color.white.opacity(colorScheme == .dark ? 0.25 : 0.60),
+                                            Color.white.opacity(colorScheme == .dark ? 0.05 : 0.15)
                                         ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
@@ -140,303 +147,282 @@ struct CategoryDetailSheet: View {
                                     lineWidth: 1.5
                                 )
                         )
+                        .frame(width: 72, height: 72)
+                        .overlay(
+                            Image(systemName: category.systemImageName)
+                                .font(.system(size: 28, weight: .semibold))
+                                .foregroundStyle(category.color.color)
+                        )
+                        .shadow(color: category.color.color.opacity(0.25), radius: 12, y: 6)
+                }
+                
+                VStack(spacing: 8) {
+                    Text(category.name)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(FColors.textPrimary)
+                        .multilineTextAlignment(.center)
                     
-                    Image(systemName: category.systemImageName)
-                        .font(.system(size: 44, weight: .semibold))
-                        .foregroundStyle(category.color.color)
-                }
-                .frame(width: 100, height: 100)
-                .shadow(color: category.color.color.opacity(0.4), radius: 20, y: 10)
-            }
-            
-            // Name & badges
-            HStack(spacing: FSpacing.sm) {
-                Text(category.name)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(FColors.textPrimary)
-                
-                if category.isFavorite {
-                    Image(systemName: "star.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.yellow)
-                }
-                
-                if category.isSystem {
-                    Image(systemName: "lock.fill")
-                        .font(.caption)
-                        .foregroundStyle(FColors.textTertiary)
-                }
-                
-                if category.isArchived {
-                    Image(systemName: "archivebox.fill")
-                        .font(.caption)
-                        .foregroundStyle(FColors.textTertiary)
+                    HStack(spacing: 6) {
+                        Image(systemName: category.type.systemImageName)
+                            .font(.caption.weight(.semibold))
+                        
+                        Text(category.type.title)
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .foregroundStyle(FColors.textSecondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                    )
                 }
             }
-            
-            // Type badge
-            HStack(spacing: FSpacing.xs) {
-                Image(systemName: category.type.systemImageName)
-                    .font(.caption)
-                Text(category.type.title)
-                    .font(.caption.weight(.medium))
-            }
-            .foregroundStyle(category.type.defaultColor.color)
-            .padding(.horizontal, FSpacing.md)
-            .padding(.vertical, FSpacing.xs)
-            .background(category.type.defaultColor.color.opacity(0.12))
-            .clipShape(Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, FSpacing.xl)
+        .frame(height: heroHeight)
     }
     
     // MARK: - Stats Section
     
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: FSpacing.md) {
-            sectionHeader(icon: "chart.bar", title: "Este mes")
+        HStack(spacing: FSpacing.md) {
+            StatCard(
+                title: "Este mes",
+                value: "RD$12.5K",
+                subtitle: "23 transacciones",
+                icon: "chart.bar.fill",
+                accentColor: category.color.color
+            )
             
-            HStack(spacing: FSpacing.md) {
-                // Total spent/received
-                StatCard(
-                    title: category.type == .expense ? "Gastado" : "Recibido",
-                    value: "RD$0", // TODO: conectar con transacciones
-                    subtitle: "0 transacciones",
-                    accentColor: category.color.color
-                )
-                
-                // Average
-                StatCard(
-                    title: "Promedio",
-                    value: "RD$0",
-                    subtitle: "últimos 3 meses",
-                    accentColor: nil
-                )
-            }
+            StatCard(
+                title: "Promedio",
+                value: "RD$10.2K",
+                subtitle: "últimos 3 meses",
+                icon: "arrow.triangle.2.circlepath",
+                accentColor: FColors.textSecondary
+            )
         }
-        .padding(FSpacing.lg)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: FRadius.lg))
+    }
+    
+    // MARK: - Chart Section
+    
+    private var chartSection: some View {
+        DetailCard {
+            CategoryDetailChart(
+                accentColor: category.color.color,
+                selectedMonth: $selectedMonth
+            )
+        }
     }
     
     // MARK: - Budget Section
     
     private var budgetSection: some View {
-        VStack(alignment: .leading, spacing: FSpacing.md) {
-            sectionHeader(icon: "target", title: "Presupuesto")
-            
-            VStack(spacing: FSpacing.sm) {
-                // Progress bar
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        // Background
-                        Capsule()
-                            .fill(FColors.backgroundSecondary)
-                        
-                        // Progress
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [category.color.color, category.color.color.opacity(0.7)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(width: 0) // TODO: calcular progreso real
-                            .shadow(color: category.color.color.opacity(0.4), radius: 4, y: 2)
-                    }
-                }
-                .frame(height: 8)
-                
-                // Labels
+        DetailCard {
+            VStack(alignment: .leading, spacing: FSpacing.md) {
                 HStack {
-                    Text("RD$0 de RD$\(Int(category.budget ?? 0))")
-                        .font(.subheadline)
-                        .foregroundStyle(FColors.textPrimary)
+                    Label {
+                        Text("Presupuesto")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(FColors.textPrimary)
+                    } icon: {
+                        Image(systemName: "target")
+                            .foregroundStyle(category.color.color)
+                    }
                     
                     Spacer()
                     
-                    Text("0%")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(FColors.green)
-                }
-            }
-        }
-        .padding(FSpacing.lg)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: FRadius.lg))
-    }
-    
-    // MARK: - Keywords Section
-    
-    private var keywordsSection: some View {
-        VStack(alignment: .leading, spacing: FSpacing.md) {
-            sectionHeader(icon: "sparkles", title: "Palabras clave")
-            
-            FlowLayout(spacing: FSpacing.sm) {
-                ForEach(category.keywords, id: \.self) { keyword in
-                    Text(keyword)
-                        .font(.caption)
+                    Text("RD$\(Int(category.budget ?? 0)) / mes")
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(FColors.textSecondary)
-                        .padding(.horizontal, FSpacing.sm)
-                        .padding(.vertical, 6)
-                        .background(FColors.backgroundSecondary)
-                        .clipShape(Capsule())
+                }
+                
+                VStack(spacing: 8) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                            
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [category.color.color, category.color.color.opacity(0.85)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geo.size.width * 0.45)
+                                .shadow(color: category.color.color.opacity(0.3), radius: 2, y: 1)
+                        }
+                    }
+                    .frame(height: 8)
+                    
+                    HStack {
+                        Text("45% usado")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(category.color.color)
+                        
+                        Spacer()
+                        
+                        Text("Quedan RD$\(Int((category.budget ?? 0) * 0.55))")
+                            .font(.caption)
+                            .foregroundStyle(FColors.textTertiary)
+                    }
                 }
             }
         }
-        .padding(FSpacing.lg)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: FRadius.lg))
     }
     
     // MARK: - Subcategories Section
     
     private var subcategoriesSection: some View {
-        VStack(alignment: .leading, spacing: FSpacing.md) {
-            sectionHeader(icon: "folder", title: "Subcategorías")
-            
-            VStack(spacing: 0) {
-                ForEach(Array(category.activeChildren.enumerated()), id: \.element.id) { index, child in
-                    if index > 0 {
-                        Divider()
-                            .padding(.leading, 48)
+        DetailCard {
+            VStack(alignment: .leading, spacing: FSpacing.md) {
+                Label {
+                    Text("Subcategorías")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(FColors.textPrimary)
+                } icon: {
+                    Image(systemName: "folder.fill")
+                        .foregroundStyle(FColors.textSecondary)
+                }
+                
+                Divider()
+                    .opacity(0.5)
+                
+                VStack(spacing: 0) {
+                    ForEach(Array(category.activeChildren.enumerated()), id: \.element.id) { index, child in
+                        if index > 0 {
+                            Divider()
+                                .padding(.leading, 48)
+                                .opacity(0.3)
+                        }
+                        
+                        SubcategoryRow(child: child, colorScheme: colorScheme)
                     }
-                    
-                    HStack(spacing: FSpacing.md) {
-                        // Icon
-                        Image(systemName: child.systemImageName)
-                            .font(.body)
-                            .foregroundStyle(child.color.color)
-                            .frame(width: 32, height: 32)
-                            .background(child.color.color.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        
-                        Text(child.name)
-                            .font(.body)
-                            .foregroundStyle(FColors.textPrimary)
-                        
-                        Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(FColors.textTertiary)
-                    }
-                    .padding(.vertical, FSpacing.sm)
                 }
             }
         }
-        .padding(FSpacing.lg)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: FRadius.lg))
+    }
+    
+    // MARK: - Keywords Section
+    
+    private var keywordsSection: some View {
+        DetailCard {
+            VStack(alignment: .leading, spacing: FSpacing.md) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(FColors.textSecondary)
+                    
+                    Text("Palabras clave")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(FColors.textPrimary)
+                }
+                
+                FlowLayout(spacing: FSpacing.sm) {
+                    ForEach(category.keywords, id: \.self) { keyword in
+                        DetailKeywordChip(keyword: keyword, color: category.color.color)
+                    }
+                }
+            }
+        }
     }
     
     // MARK: - Actions Section
     
     private var actionsSection: some View {
-        VStack(spacing: 0) {
-            // Add transaction
-            ActionRow(
-                icon: "plus.circle",
-                title: "Agregar transacción",
-                color: FColors.brand
-            ) {
-                // TODO: Navigate to add transaction
-            }
-            
-            Divider().padding(.leading, 48)
-            
-            // Toggle favorite
-            ActionRow(
-                icon: category.isFavorite ? "star.slash" : "star",
-                title: category.isFavorite ? "Quitar de favoritos" : "Agregar a favoritos",
-                color: .yellow
-            ) {
-                viewModel.toggleFavorite(category)
-            }
-            
-            Divider().padding(.leading, 48)
-            
-            // Duplicate
-            ActionRow(
-                icon: "doc.on.doc",
-                title: "Duplicar categoría",
-                color: FColors.textSecondary
-            ) {
-                viewModel.duplicateCategory(category)
-                dismiss()
-            }
-            
-            // Restore (if archived)
-            if category.isArchived {
-                Divider().padding(.leading, 48)
-                
-                ActionRow(
-                    icon: "arrow.uturn.backward",
-                    title: "Restaurar categoría",
-                    color: FColors.green
+        DetailCard {
+            VStack(spacing: 0) {
+                DetailActionRow(
+                    title: category.isFavorite ? "Quitar de favoritos" : "Marcar como favorito",
+                    icon: category.isFavorite ? "star.slash.fill" : "star.fill",
+                    iconColor: FColors.yellow
                 ) {
-                    viewModel.restoreCategory(category)
+                    viewModel.toggleFavorite(category)
+                }
+                
+                DetailActionDivider()
+                
+                DetailActionRow(
+                    title: "Duplicar categoría",
+                    icon: "doc.on.doc.fill",
+                    iconColor: FColors.textSecondary
+                ) {
+                    viewModel.duplicateCategory(category)
                     dismiss()
                 }
-            }
-            
-            // Archive or Delete (if not system)
-            if !category.isSystem {
-                Divider().padding(.leading, 48)
                 
-                if category.isArchived {
-                    ActionRow(
-                        icon: "trash",
-                        title: "Eliminar permanentemente",
-                        color: FColors.red,
+                if !category.isSystem {
+                    DetailActionDivider()
+                    
+                    DetailActionRow(
+                        title: category.isArchived ? "Eliminar permanentemente" : "Archivar categoría",
+                        icon: category.isArchived ? "trash.fill" : "archivebox.fill",
+                        iconColor: FColors.red,
                         isDestructive: true
                     ) {
                         dismiss()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            viewModel.presentDeleteAlert(category)
-                        }
-                    }
-                } else {
-                    ActionRow(
-                        icon: "archivebox",
-                        title: "Archivar categoría",
-                        color: FColors.red,
-                        isDestructive: true
-                    ) {
-                        dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            viewModel.presentArchiveAlert(category)
+                            if category.isArchived {
+                                viewModel.presentDeleteAlert(category)
+                            } else {
+                                viewModel.presentArchiveAlert(category)
+                            }
                         }
                     }
                 }
             }
         }
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: FRadius.lg))
+    }
+}
+
+// MARK: - Detail Card
+
+private struct DetailCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let content: Content
+    
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
     }
     
-    // MARK: - Helpers
-    
-    private func sectionHeader(icon: String, title: String) -> some View {
-        HStack(spacing: FSpacing.sm) {
-            Image(systemName: icon)
-                .font(.subheadline)
-                .foregroundStyle(FColors.textTertiary)
-            
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(FColors.textSecondary)
-        }
+    var body: some View {
+        content
+            .padding(FSpacing.lg)
+            .background(cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: FRadius.lg, style: .continuous))
+            .overlay(cardBorder)
     }
     
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: FRadius.lg)
-            .fill(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.06)
-                    : Color.black.opacity(0.03)
+        ZStack {
+            (colorScheme == .dark ? FColors.backgroundSecondary : Color(white: 0.97))
+            
+            LinearGradient(
+                colors: [
+                    colorScheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.90),
+                    colorScheme == .dark ? Color.white.opacity(0.01) : Color.white.opacity(0.30)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+    
+    private var cardBorder: some View {
+        RoundedRectangle(cornerRadius: FRadius.lg, style: .continuous)
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06),
+                        colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
             )
     }
 }
@@ -447,43 +433,138 @@ private struct StatCard: View {
     let title: String
     let value: String
     let subtitle: String
-    let accentColor: Color?
+    let icon: String
+    let accentColor: Color
     
     @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
-        VStack(alignment: .leading, spacing: FSpacing.xs) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(FColors.textTertiary)
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                    .frame(width: 36, height: 36)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(accentColor)
+            }
             
-            Text(value)
-                .font(.title2.weight(.bold))
-                .foregroundStyle(FColors.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(FColors.textPrimary)
+                
+                Text(title)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(FColors.textSecondary)
+            }
             
             Text(subtitle)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(FColors.textTertiary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(FSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: FRadius.md)
-                .fill(
-                    accentColor != nil
-                        ? accentColor!.opacity(colorScheme == .dark ? 0.15 : 0.1)
-                        : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
-                )
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(cardBorder)
+    }
+    
+    private var cardBackground: some View {
+        ZStack {
+            (colorScheme == .dark ? FColors.backgroundSecondary : Color(white: 0.97))
+            
+            LinearGradient(
+                colors: [
+                    colorScheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.90),
+                    colorScheme == .dark ? Color.white.opacity(0.01) : Color.white.opacity(0.30)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+    
+    private var cardBorder: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06),
+                        colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
     }
 }
 
-// MARK: - Action Row
+// MARK: - Subcategory Row
 
-private struct ActionRow: View {
-    let icon: String
-    let title: String
+private struct SubcategoryRow: View {
+    let child: Category
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        HStack(spacing: FSpacing.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(child.color.color.opacity(colorScheme == .dark ? 0.15 : 0.1))
+                    .frame(width: 36, height: 36)
+                
+                Image(systemName: child.systemImageName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(child.color.color)
+            }
+            
+            Text(child.name)
+                .font(.body)
+                .foregroundStyle(FColors.textPrimary)
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FColors.textTertiary)
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Detail Keyword Chip
+
+private struct DetailKeywordChip: View {
+    let keyword: String
     let color: Color
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        Text(keyword)
+            .font(.subheadline)
+            .foregroundStyle(FColors.textPrimary)
+            .padding(.horizontal, FSpacing.md)
+            .padding(.vertical, FSpacing.sm)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(color.opacity(colorScheme == .dark ? 0.16 : 0.12))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(color.opacity(0.20), lineWidth: 1)
+                    )
+            )
+    }
+}
+
+// MARK: - Detail Action Row
+
+private struct DetailActionRow: View {
+    let title: String
+    let icon: String
+    let iconColor: Color
     var isDestructive: Bool = false
     let action: () -> Void
     
@@ -491,38 +572,53 @@ private struct ActionRow: View {
         Button(action: action) {
             HStack(spacing: FSpacing.md) {
                 Image(systemName: icon)
-                    .font(.body)
-                    .foregroundStyle(color)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(iconColor)
                     .frame(width: 24)
                 
                 Text(title)
                     .font(.body)
-                    .foregroundStyle(isDestructive ? color : FColors.textPrimary)
+                    .foregroundStyle(isDestructive ? FColors.red : FColors.textPrimary)
                 
                 Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(FColors.textTertiary)
             }
-            .padding(.horizontal, FSpacing.lg)
-            .padding(.vertical, FSpacing.md)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DetailActionButtonStyle())
+    }
+}
+
+// MARK: - Detail Action Divider
+
+private struct DetailActionDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.leading, 40)
+            .opacity(0.5)
+    }
+}
+
+// MARK: - Detail Action Button Style
+
+private struct DetailActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 
 // MARK: - Preview
 
-#Preview {
+#Preview("Detail - Light") {
     let category = Category(
         name: "Comida",
         icon: .food,
         color: .orange,
         type: .expense,
         budget: 5000,
-        keywords: ["uber eats", "rappi", "restaurante"]
+        keywords: ["uber eats", "rappi", "restaurante", "supermercado"]
     )
     
     return Color.clear
@@ -534,7 +630,7 @@ private struct ActionRow: View {
         }
 }
 
-#Preview("Dark Mode") {
+#Preview("Detail - Dark") {
     let category = Category(
         name: "Transporte",
         icon: .transport,

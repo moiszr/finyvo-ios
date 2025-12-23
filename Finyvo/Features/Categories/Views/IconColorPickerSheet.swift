@@ -388,7 +388,7 @@ private struct ScaleButtonStyle: ButtonStyle {
 
 // MARK: - Previews
 
-#Preview("Icon+Color Picker") {
+#Preview("Color Picker") {
     @Previewable @State var icon: FCategoryIcon = .food
     @Previewable @State var color: FCardColor = .white // Prueba con .white
 
