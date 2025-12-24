@@ -39,6 +39,7 @@ struct FinyvoApp: App {
             AppRouter()
                 .environment(appState)
                 .modelContainer(sharedModelContainer)
+                .environment(\.locale, Locale(identifier: AppConfig.Defaults.localeIdentifier))
         }
     }
 }
