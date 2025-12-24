@@ -6,6 +6,7 @@
 //
 //  Card de categoría premium con diseño neutro (estilo Editor).
 //  Solo el icono y la barra de progreso aportan color.
+//  Integrated with CurrencyConfig for proper formatting.
 //
 
 import SwiftUI
@@ -20,6 +21,11 @@ struct FCardData {
     let spent: Double
     let isFavorite: Bool
     let transactionCount: Int
+    
+    /// Código de moneda para formateo (usa default de AppConfig si nil)
+    var currencyCode: String?
+    
+    // MARK: - Computed Properties
     
     var hasBudget: Bool {
         guard let budget else { return false }
@@ -38,6 +44,67 @@ struct FCardData {
     var remaining: Double {
         guard let budget else { return 0 }
         return max(budget - spent, 0)
+    }
+    
+    /// `true` si el progreso supera el umbral de alerta
+    var isOverBudgetAlert: Bool {
+        progress >= AppConfig.Defaults.budgetAlertPercentage
+    }
+    
+    // MARK: - Formatted Values
+    
+    /// Monto gastado formateado
+    var formattedSpent: String {
+        spent.asCurrency(code: currencyCode)
+    }
+    
+    /// Monto gastado compacto
+    var formattedSpentCompact: String {
+        spent.asCompactCurrency(code: currencyCode)
+    }
+    
+    /// Presupuesto formateado
+    var formattedBudget: String {
+        guard let budget else { return "" }
+        return budget.asCurrency(code: currencyCode)
+    }
+    
+    /// Presupuesto compacto
+    var formattedBudgetCompact: String {
+        guard let budget else { return "" }
+        return budget.asCompactCurrency(code: currencyCode)
+    }
+    
+    /// Restante formateado
+    var formattedRemaining: String {
+        remaining.asCurrency(code: currencyCode)
+    }
+    
+    /// Restante compacto
+    var formattedRemainingCompact: String {
+        remaining.asCompactCurrency(code: currencyCode)
+    }
+    
+    // MARK: - Initializer
+    
+    init(
+        name: String,
+        icon: FCategoryIcon,
+        color: FCardColor,
+        budget: Double?,
+        spent: Double,
+        isFavorite: Bool,
+        transactionCount: Int,
+        currencyCode: String? = nil
+    ) {
+        self.name = name
+        self.icon = icon
+        self.color = color
+        self.budget = budget
+        self.spent = spent
+        self.isFavorite = isFavorite
+        self.transactionCount = transactionCount
+        self.currencyCode = currencyCode
     }
 }
 
@@ -186,9 +253,9 @@ struct FCardCategoryView: View {
                         .font(.caption2)
                         .foregroundStyle(FColors.textTertiary)
                     
-                    Text(formatCurrency(data.spent))
+                    Text(data.formattedSpent)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(FColors.textPrimary) // Texto neutro para limpieza
+                        .foregroundStyle(FColors.textPrimary)
                 }
             } else {
                 Text("Sin movimientos")
@@ -229,11 +296,11 @@ struct FCardCategoryView: View {
             // Textos de Presupuesto
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(formatCompactCurrency(data.spent))
+                    Text(data.formattedSpentCompact)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(FColors.textPrimary)
                     
-                    Text("de \(formatCompactCurrency(data.budget ?? 0))")
+                    Text("de \(data.formattedBudgetCompact)")
                         .font(.caption2)
                         .foregroundStyle(FColors.textTertiary)
                 }
@@ -253,26 +320,6 @@ struct FCardCategoryView: View {
                 }
             }
         }
-    }
-    
-    // MARK: - Formatters
-    
-    private func formatCurrency(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencySymbol = "RD$"
-        formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: value)) ?? "RD$\(Int(value))"
-    }
-    
-    private func formatCompactCurrency(_ value: Double) -> String {
-        if value >= 1000000 {
-            return "RD$\(String(format: "%.1f", value / 1000000))M"
-        }
-        if value >= 1000 {
-            return "RD$\(String(format: "%.1f", value / 1000))K"
-        }
-        return "RD$\(Int(value))"
     }
 }
 

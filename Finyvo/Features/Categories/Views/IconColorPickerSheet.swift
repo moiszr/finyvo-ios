@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/22/25.
 //  Premium unified Icon + Color picker (Expandable Card).
+//  Integrated with Constants.Haptic and Constants.Animation.
 //
 
 import SwiftUI
@@ -37,7 +38,7 @@ struct IconColorPickerSheet: View {
 
     private var filteredIcons: [FCategoryIcon] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let icons = FCategoryIcon.allOrdered // Usando la extensión
+        let icons = FCategoryIcon.allOrdered
         
         guard !q.isEmpty else { return icons }
         
@@ -64,8 +65,7 @@ struct IconColorPickerSheet: View {
                 }
                 .padding(.horizontal, FSpacing.lg)
                 .padding(.bottom, FSpacing.xxl)
-                // Anima el layout al expandir
-                .animation(.spring(response: 0.4, dampingFraction: 0.75), value: isColorExpanded)
+                .animation(Constants.Animation.defaultSpring, value: isColorExpanded)
             }
             .background(FColors.background)
             .navigationTitle("Personalizar")
@@ -174,14 +174,13 @@ struct IconColorPickerSheet: View {
             // Icono
             Image(systemName: selectedIcon.systemName)
                 .font(.system(size: 22, weight: .semibold))
-                // ✅ ARREGLO: Pasamos 'colorScheme' para que calcule el contraste correcto
                 .foregroundStyle(selectedColor.contrastContentColor(for: colorScheme))
         }.accessibilityHidden(true)
     }
     
     private var colorSelectorButton: some View {
         Button {
-            hapticLight()
+            Task { @MainActor in Constants.Haptic.light() }
             isColorExpanded.toggle()
         } label: {
             HStack(spacing: 8) {
@@ -216,7 +215,7 @@ struct IconColorPickerSheet: View {
                     .stroke(Color.primary.opacity(0.05), lineWidth: 1)
             )
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(PickerScaleButtonStyle())
         .accessibilityLabel("Selector de color")
         .accessibilityValue(selectedColor.displayName(for: colorScheme))
         .accessibilityHint(isColorExpanded ? "Doble toque para cerrar la paleta de colores" : "Doble toque para abrir la paleta de colores")
@@ -251,7 +250,6 @@ struct IconColorPickerSheet: View {
                     )
                 
                 if isSelected {
-                    // El checkmark también necesita respetar el contraste del color de fondo
                     Image(systemName: "checkmark")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(color.contrastContentColor(for: colorScheme))
@@ -270,7 +268,7 @@ struct IconColorPickerSheet: View {
             )
             .frame(width: 44, height: 44)
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(PickerScaleButtonStyle())
         .accessibilityLabel(color.displayName(for: colorScheme))
         .accessibilityValue(isSelected ? "Seleccionado" : "")
         .accessibilityHint("Doble toque para seleccionar este color")
@@ -281,11 +279,11 @@ struct IconColorPickerSheet: View {
     // MARK: - Actions
 
     private func selectColor(_ color: FCardColor) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        withAnimation(Constants.Animation.quickSpring) {
             selectedColor = color
             onColorSelect?(color)
         }
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
 
     // MARK: - Icon Grid Section
@@ -302,11 +300,11 @@ struct IconColorPickerSheet: View {
         let isSelected = icon == selectedIcon
 
         return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+            withAnimation(Constants.Animation.quickSpring) {
                 selectedIcon = icon
                 onIconSelect?(icon)
             }
-            hapticLight()
+            Task { @MainActor in Constants.Haptic.light() }
         } label: {
             ZStack {
                 // Fondo consistente
@@ -317,7 +315,7 @@ struct IconColorPickerSheet: View {
                         : (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
                     )
                 
-                // Borde consistente (siempre presente si no está seleccionado para mantener tamaño visual)
+                // Borde consistente
                 if !isSelected {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(
@@ -339,7 +337,7 @@ struct IconColorPickerSheet: View {
             }
             .frame(height: 50)
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(PickerScaleButtonStyle())
         .accessibilityLabel("Icono \(icon.displayName)")
         .accessibilityValue(isSelected ? "Seleccionado" : "")
         .accessibilityHint("Doble toque para seleccionar este icono")
@@ -371,18 +369,15 @@ struct IconColorPickerSheet: View {
                 lineWidth: 1
             )
     }
-
-    private func hapticLight() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
 }
 
-// Helper para animación de botones al pulsar
-private struct ScaleButtonStyle: ButtonStyle {
+// MARK: - Scale Button Style
+
+private struct PickerScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
     }
 }
 
@@ -390,7 +385,7 @@ private struct ScaleButtonStyle: ButtonStyle {
 
 #Preview("Color Picker") {
     @Previewable @State var icon: FCategoryIcon = .food
-    @Previewable @State var color: FCardColor = .white // Prueba con .white
+    @Previewable @State var color: FCardColor = .white
 
     Color.gray.opacity(0.1)
         .sheet(isPresented: .constant(true)) {

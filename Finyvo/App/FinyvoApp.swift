@@ -15,10 +15,14 @@ struct FinyvoApp: App {
     @State private var appState = AppState()
     
     /// Contenedor compartido de SwiftData
+    ///
+    /// ⚠️ IMPORTANTE: Agregar aquí todos los modelos @Model que uses
     let sharedModelContainer: ModelContainer = {
-        // Si luego agregas más modelos, los pones en el schema
         let schema = Schema([
-            Category.self
+            Category.self,
+            Tag.self,          // ← AGREGADO: Modelo de etiquetas
+            // Wallet.self,    // ← Agregar cuando crees el modelo
+            // Transaction.self, // ← Agregar cuando crees el modelo
         ])
         
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)

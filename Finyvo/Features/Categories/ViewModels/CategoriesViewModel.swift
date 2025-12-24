@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/11/25.
 //  Refactored for Swift 6 with FCategoryIcon and FCardColor support.
+//  Integrated with Constants.Haptic and AppConfig.Limits.
 //
 
 import SwiftUI
@@ -107,7 +108,7 @@ final class CategoriesViewModel {
     ///
     /// - Parameter type: Tipo a filtrar, o `nil` para limpiar
     func setTypeFilter(_ type: CategoryType?) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(Constants.Animation.defaultSpring) {
             selectedType = type
             
             // Si cambiamos de tipo, salir de modo archivadas
@@ -115,23 +116,23 @@ final class CategoriesViewModel {
                 showArchived = false
             }
         }
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     /// Activa/desactiva el modo de archivadas.
     func toggleArchivedMode() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(Constants.Animation.defaultSpring) {
             showArchived.toggle()
             if showArchived {
                 selectedType = nil
             }
         }
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     /// Limpia todos los filtros.
     func clearFilters() {
-        withAnimation {
+        withAnimation(Constants.Animation.defaultSpring) {
             selectedType = .expense
             showArchived = false
         }
@@ -160,13 +161,24 @@ final class CategoriesViewModel {
     ) {
         guard let context = requireContext() else { return }
         
+        // Validar límite de categorías
+        let currentCount = countCategories(ofType: type, in: context)
+        guard currentCount < AppConfig.Limits.maxCategoriesPerType else {
+            error = .limitReached
+            Task { @MainActor in Constants.Haptic.error() }
+            return
+        }
+        
+        // Validar límite de keywords
+        let validatedKeywords = Array(keywords.prefix(AppConfig.Limits.maxKeywordsPerCategory))
+        
         let category = Category(
-            name: name,
+            name: String(name.prefix(AppConfig.Limits.maxCategoryNameLength)),
             icon: icon,
             color: color,
             type: type,
             budget: budget,
-            keywords: keywords,
+            keywords: validatedKeywords,
             parent: parent
         )
         
@@ -175,7 +187,7 @@ final class CategoriesViewModel {
         
         context.insert(category)
         save()
-        hapticSuccess()
+        Task { @MainActor in Constants.Haptic.success() }
     }
     
     /// Actualiza una categoría existente.
@@ -184,7 +196,7 @@ final class CategoriesViewModel {
     func updateCategory(_ category: Category) {
         category.updatedAt = .now
         save()
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     /// Archiva una categoría y sus subcategorías.
@@ -201,7 +213,7 @@ final class CategoriesViewModel {
         }
         
         save()
-        hapticSuccess()
+        Task { @MainActor in Constants.Haptic.success() }
     }
     
     /// Restaura una categoría archivada.
@@ -211,7 +223,7 @@ final class CategoriesViewModel {
         category.isArchived = false
         category.updatedAt = .now
         save()
-        hapticSuccess()
+        Task { @MainActor in Constants.Haptic.success() }
     }
     
     /// Elimina permanentemente una categoría.
@@ -222,12 +234,13 @@ final class CategoriesViewModel {
         
         guard !category.isSystem else {
             error = .cannotDeleteSystem
+            Task { @MainActor in Constants.Haptic.error() }
             return
         }
         
         context.delete(category)
         save()
-        hapticSuccess()
+        Task { @MainActor in Constants.Haptic.success() }
     }
     
     /// Duplica una categoría.
@@ -236,8 +249,16 @@ final class CategoriesViewModel {
     func duplicateCategory(_ category: Category) {
         guard let context = requireContext() else { return }
         
+        // Validar límite de categorías
+        let currentCount = countCategories(ofType: category.type, in: context)
+        guard currentCount < AppConfig.Limits.maxCategoriesPerType else {
+            error = .limitReached
+            Task { @MainActor in Constants.Haptic.error() }
+            return
+        }
+        
         let duplicate = Category(
-            name: "\(category.name) (copia)",
+            name: "\(category.name) (copia)".prefix(AppConfig.Limits.maxCategoryNameLength).description,
             icon: category.icon,
             color: category.color,
             type: category.type,
@@ -250,7 +271,7 @@ final class CategoriesViewModel {
         
         context.insert(duplicate)
         save()
-        hapticSuccess()
+        Task { @MainActor in Constants.Haptic.success() }
     }
     
     /// Alterna el estado de favorito.
@@ -260,7 +281,7 @@ final class CategoriesViewModel {
         category.isFavorite.toggle()
         category.updatedAt = .now
         save()
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     // MARK: - Keyword Management
@@ -271,6 +292,11 @@ final class CategoriesViewModel {
     ///   - keyword: Keyword a agregar
     ///   - category: Categoría destino
     func addKeyword(_ keyword: String, to category: Category) {
+        // Validar límite
+        guard category.keywords.count < AppConfig.Limits.maxKeywordsPerCategory else {
+            return
+        }
+        
         let normalized = keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
         guard !normalized.isEmpty,
@@ -382,7 +408,7 @@ final class CategoriesViewModel {
     @discardableResult
     private func requireContext() -> ModelContext? {
         guard let context = modelContext else {
-            assertionFailure("CategoriesViewModel: ModelContext no configurado")
+            print("❌ CategoriesViewModel: ModelContext no configurado")
             return nil
         }
         return context
@@ -395,6 +421,17 @@ final class CategoriesViewModel {
             self.error = .saveFailed
             print("❌ CategoriesViewModel: Error al guardar - \(error)")
         }
+    }
+    
+    /// Cuenta categorías de un tipo específico.
+    private func countCategories(ofType type: CategoryType, in context: ModelContext) -> Int {
+        let typeRaw = type.rawValue
+        let descriptor = FetchDescriptor<Category>(
+            predicate: #Predicate { category in
+                category.parent == nil && category.typeRaw == typeRaw && !category.isArchived
+            }
+        )
+        return (try? context.fetchCount(descriptor)) ?? 0
     }
     
     /// Calcula el siguiente sortOrder para una categoría.
@@ -427,20 +464,9 @@ final class CategoriesViewModel {
         }
         
         save()
-        print("✅ CategoriesViewModel: Categorías por defecto creadas")
-    }
-    
-    // MARK: - Haptics
-    
-    private func hapticSuccess() {
-        Task { @MainActor in
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        }
-    }
-    
-    private func hapticLight() {
-        Task { @MainActor in
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        
+        if AppConfig.isDebugMode {
+            print("✅ CategoriesViewModel: Categorías por defecto creadas")
         }
     }
 }
@@ -455,6 +481,7 @@ enum CategoryError: Error, LocalizedError, Identifiable {
     case cannotDeleteSystem
     case saveFailed
     case invalidData
+    case limitReached
     
     var id: String { localizedDescription }
     
@@ -472,6 +499,8 @@ enum CategoryError: Error, LocalizedError, Identifiable {
             return "Error al guardar los cambios"
         case .invalidData:
             return "Datos inválidos"
+        case .limitReached:
+            return "Has alcanzado el límite de \(AppConfig.Limits.maxCategoriesPerType) categorías"
         }
     }
     
@@ -481,6 +510,8 @@ enum CategoryError: Error, LocalizedError, Identifiable {
             return "Usa la opción 'Archivar' en lugar de eliminar"
         case .saveFailed:
             return "Intenta de nuevo o reinicia la app"
+        case .limitReached:
+            return "Archiva algunas categorías que no uses"
         default:
             return nil
         }

@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/23/25.
 //  Modular chart components para CategoryDetailSheet.
+//  Integrated with Constants.Haptic, Constants.Animation and CurrencyConfig.
 //
 
 import SwiftUI
@@ -109,22 +110,22 @@ struct SpendingChart: View {
             } ?? false
             if !dominated {
                 lastHapticDate = newValue
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Task { @MainActor in Constants.Haptic.light() }
             }
         }
         .onChange(of: selectedMonth) { _, newMonth in
-            withAnimation(.easeOut(duration: 0.15)) { isAnimating = false }
+            withAnimation(Constants.Animation.easeOut) { isAnimating = false }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 data = DailySpending.generate(for: newMonth)
                 rawSelectedDate = nil
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                withAnimation(Constants.Animation.chartSpring) {
                     isAnimating = true
                 }
             }
         }
         .onAppear {
             data = DailySpending.generate(for: selectedMonth)
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.75).delay(0.2)) {
+            withAnimation(Constants.Animation.chartSpring.delay(0.2)) {
                 isAnimating = true
             }
         }
@@ -193,17 +194,11 @@ private struct ChartTooltip: View {
     }
 
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "es_DO")
-        formatter.dateFormat = "d MMM"
-        return formatter.string(from: spending.date)
+        spending.date.dayMonthString
     }
 
     private var formattedAmount: String {
-        if spending.amount >= 1000 {
-            return "RD$\(String(format: "%.1f", spending.amount / 1000))K"
-        }
-        return "RD$\(Int(spending.amount))"
+        spending.amount.asCompactCurrency()
     }
 }
 
@@ -257,7 +252,7 @@ struct MonthYearPicker: View {
 
     private func monthName(for month: Int) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "es_DO")
+        formatter.locale = Locale(identifier: AppConfig.Defaults.localeIdentifier)
         return formatter.monthSymbols[month - 1].capitalized
     }
 
@@ -272,7 +267,10 @@ struct MonthYearPicker: View {
         let newYr  = year  ?? yearComponent
         if isFuture(newMon, year: newYr) { return }
         var comps = DateComponents(); comps.year = newYr; comps.month = newMon; comps.day = 1
-        if let newDate = calendar.date(from: comps) { selectedMonth = newDate }
+        if let newDate = calendar.date(from: comps) {
+            selectedMonth = newDate
+            Task { @MainActor in Constants.Haptic.selection() }
+        }
     }
 
     var body: some View {

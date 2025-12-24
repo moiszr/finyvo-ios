@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/11/25.
 //  Refactored: Premium "Silent Canvas" design aligned with Editor.
+//  Integrated with Constants.Haptic and Constants.Animation.
 //
 
 import SwiftUI
@@ -22,6 +23,7 @@ struct CategoriesView: View {
     
     @State private var viewModel = CategoriesViewModel()
     @State private var hasInitialized = false
+    @State private var tagsViewModel = TagsViewModel()
     
     // MARK: - Queries
     
@@ -109,10 +111,10 @@ struct CategoriesView: View {
                     .accessibilityLabel("Atras")
                 }
                 
-                // Botón Tags (A la izquierda del más)
+                // Botón Tags
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        // TODO: Implementar lógica de Tags
+                        tagsViewModel.present()
                     } label: {
                         Image(systemName: "tag")
                             .font(.system(size: 14, weight: .bold))
@@ -120,8 +122,8 @@ struct CategoriesView: View {
                     }
                     .accessibilityLabel("Etiquetas")
                 }
-                
-                // Botón Crear Categoría (Principal / Derecha)
+                 
+                // Botón Crear Categoría
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         viewModel.presentCreate()
@@ -141,6 +143,9 @@ struct CategoriesView: View {
                 if let category = viewModel.selectedCategory {
                     CategoryDetailSheet(category: category, viewModel: viewModel)
                 }
+            }
+            .sheet(isPresented: $tagsViewModel.isPresented) {
+                TagsSheet(viewModel: tagsViewModel)
             }
             .alert("Archivar categoría", isPresented: $viewModel.isArchiveAlertPresented) {
                 Button("Cancelar", role: .cancel) {}
@@ -164,6 +169,7 @@ struct CategoriesView: View {
         }
         .onAppear {
             viewModel.configure(with: modelContext)
+            tagsViewModel.configure(with: modelContext)
             if !hasInitialized {
                 viewModel.setTypeFilter(.expense)
                 hasInitialized = true
@@ -211,7 +217,7 @@ struct CategoriesView: View {
     
     private var filterSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) { // Spacing más apretado y limpio
+            HStack(spacing: 8) {
                 FilterPill(
                     title: "Gastos",
                     count: expenseCount,
@@ -248,11 +254,11 @@ struct CategoriesView: View {
     }
     
     private func filterAction(_ type: CategoryType?, archived: Bool = false) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(Constants.Animation.defaultSpring) {
             viewModel.showArchived = archived
             viewModel.setTypeFilter(type)
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     // MARK: - Grid
@@ -335,7 +341,6 @@ private struct FilterPill: View {
                 if let count = count, count > 0 {
                     Text("\(count)")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        // Texto invertido si está seleccionado
                         .foregroundStyle(isSelected ? (colorScheme == .dark ? .black : .white) : FColors.textSecondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -347,7 +352,6 @@ private struct FilterPill: View {
                         )
                 }
             }
-            // Texto principal: Blanco/Negro si seleccionado, Gris si no
             .foregroundStyle(isSelected ? (colorScheme == .dark ? .black : .white) : FColors.textSecondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -355,12 +359,12 @@ private struct FilterPill: View {
                 Capsule()
                     .fill(
                         isSelected
-                        ? FColors.textPrimary // Negro en Light, Blanco en Dark
+                        ? FColors.textPrimary
                         : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
                     )
             )
         }
-        .buttonStyle(ScaleButtonStyle()) // Animación al pulsar
+        .buttonStyle(ScaleButtonStyle())
     }
 }
 
@@ -377,11 +381,9 @@ private struct CategoryCardWrapper: View {
     
     var body: some View {
         FCardCategoryView(data: cardData)
-            // Forma para el menú contextual
             .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 24, style: .continuous))
             .onTapGesture { viewModel.presentDetail(category) }
             .contextMenu { contextMenuContent }
-            // Animación sutil al aparecer
             .transition(.scale(scale: 0.95).combined(with: .opacity))
     }
     
@@ -446,11 +448,12 @@ private struct ErrorBanner: View {
 }
 
 // MARK: - Helper: Scale Button Style
+
 private struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
     }
 }
 

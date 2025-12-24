@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/11/25.
 //  Premium "Silent Canvas" detail view with Interactive Chart.
+//  Integrated with CurrencyConfig and Constants.
 //
 
 import SwiftUI
@@ -25,6 +26,13 @@ struct CategoryDetailSheet: View {
     // MARK: - Layout Constants
     
     private let heroHeight: CGFloat = 260
+    
+    // MARK: - Mock Data (TODO: Replace with real data)
+    
+    private var thisMonthSpent: Double { 12500 }
+    private var thisMonthTransactions: Int { 23 }
+    private var averageSpent: Double { 10200 }
+    private var budgetProgress: Double { 0.45 }
     
     // MARK: - Body
     
@@ -189,15 +197,15 @@ struct CategoryDetailSheet: View {
         HStack(spacing: FSpacing.md) {
             StatCard(
                 title: "Este mes",
-                value: "RD$12.5K",
-                subtitle: "23 transacciones",
+                value: thisMonthSpent.asCompactCurrency(),
+                subtitle: "\(thisMonthTransactions) transacciones",
                 icon: "chart.bar.fill",
                 accentColor: category.color.color
             )
             
             StatCard(
                 title: "Promedio",
-                value: "RD$10.2K",
+                value: averageSpent.asCompactCurrency(),
                 subtitle: "últimos 3 meses",
                 icon: "arrow.triangle.2.circlepath",
                 accentColor: FColors.textSecondary
@@ -233,7 +241,7 @@ struct CategoryDetailSheet: View {
                     
                     Spacer()
                     
-                    Text("RD$\(Int(category.budget ?? 0)) / mes")
+                    Text("\(category.formattedBudget()) / mes")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FColors.textSecondary)
                 }
@@ -252,20 +260,21 @@ struct CategoryDetailSheet: View {
                                         endPoint: .trailing
                                     )
                                 )
-                                .frame(width: geo.size.width * 0.45)
+                                .frame(width: geo.size.width * budgetProgress)
                                 .shadow(color: category.color.color.opacity(0.3), radius: 2, y: 1)
                         }
                     }
                     .frame(height: 8)
                     
                     HStack {
-                        Text("45% usado")
+                        Text("\(Int(budgetProgress * 100))% usado")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(category.color.color)
                         
                         Spacer()
                         
-                        Text("Quedan RD$\(Int((category.budget ?? 0) * 0.55))")
+                        let remaining = (category.budget ?? 0) * (1 - budgetProgress)
+                        Text("Quedan \(remaining.asCompactCurrency())")
                             .font(.caption)
                             .foregroundStyle(FColors.textTertiary)
                     }
@@ -319,6 +328,12 @@ struct CategoryDetailSheet: View {
                     Text("Palabras clave")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(FColors.textPrimary)
+                    
+                    Spacer()
+                    
+                    Text("\(category.keywords.count)/\(AppConfig.Limits.maxKeywordsPerCategory)")
+                        .font(.caption)
+                        .foregroundStyle(FColors.textTertiary)
                 }
                 
                 FlowLayout(spacing: FSpacing.sm) {
@@ -341,6 +356,7 @@ struct CategoryDetailSheet: View {
                     iconColor: FColors.yellow
                 ) {
                     viewModel.toggleFavorite(category)
+                    Task { @MainActor in Constants.Haptic.light() }
                 }
                 
                 DetailActionDivider()
@@ -605,7 +621,7 @@ private struct DetailActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.6 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(Constants.Animation.easeOut, value: configuration.isPressed)
     }
 }
 

@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/11/25.
 //  Refactored for Swift 6 with FCategoryIcon and FCardColor support.
+//  Integrated with Constants.Haptic and AppConfig.Limits.
 //
 
 import SwiftUI
@@ -14,10 +15,9 @@ import SwiftUI
 ///
 /// ## Características
 /// - Usa `FCategoryIcon` (SF Symbols) en lugar de emojis
-/// - Usa `FCardColor` (8 colores) en lugar de colorHex
+/// - Usa `FCardColor` (10 colores) en lugar de colorHex
 /// - Autosugerencia de icono basada en nombre
-/// - Autosugerencia de color basada en tipo
-/// - Validación de formulario
+/// - Validación de formulario con `AppConfig.Limits`
 ///
 /// ## Uso
 /// ```swift
@@ -40,6 +40,11 @@ final class CategoryEditorViewModel {
         didSet {
             guard oldValue != name else { return }
             
+            // Limitar longitud
+            if name.count > AppConfig.Limits.maxCategoryNameLength {
+                name = String(name.prefix(AppConfig.Limits.maxCategoryNameLength))
+            }
+            
             // Auto-sugerir icono si no fue seleccionado manualmente
             if !iconSetManually {
                 updateSuggestedIcon()
@@ -61,7 +66,6 @@ final class CategoryEditorViewModel {
     var type: CategoryType = .expense {
         didSet {
             guard oldValue != type else { return }
-            // ✅ Importante: NO cambiamos color aquí.
             // El tipo solo cambia el tipo, el color se mantiene.
         }
     }
@@ -113,6 +117,13 @@ final class CategoryEditorViewModel {
     var budget: Double? {
         guard budgetEnabled else { return nil }
         
+        // Usar el parser de la moneda actual para manejar separadores correctamente
+        let currency = CurrencyConfig.defaultCurrency
+        if let parsed = currency.parse(budgetAmount), parsed > 0 {
+            return parsed
+        }
+        
+        // Fallback: normalización básica
         let normalized = budgetAmount
             .replacingOccurrences(of: ",", with: ".")
             .trimmingCharacters(in: .whitespaces)
@@ -126,14 +137,15 @@ final class CategoryEditorViewModel {
     
     /// `true` si el formulario tiene datos válidos
     var isValid: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return trimmed.count >= 2 && trimmed.count <= AppConfig.Limits.maxCategoryNameLength
     }
     
     /// `true` si hay cambios respecto al estado original
     var hasChanges: Bool {
         guard let original = mode.category else {
-            // Modo crear: hay cambios si tiene nombre
-            return !name.trimmingCharacters(in: .whitespaces).isEmpty
+            // Modo crear: hay cambios si tiene nombre válido
+            return name.trimmingCharacters(in: .whitespaces).count >= 2
         }
         
         // Modo editar: comparar con original
@@ -143,6 +155,21 @@ final class CategoryEditorViewModel {
                type != original.type ||
                budget != original.budget ||
                Set(keywords) != Set(original.keywords)
+    }
+    
+    /// Contador de keywords para UI
+    var keywordsCount: Int {
+        keywords.count
+    }
+    
+    /// Límite de keywords
+    var keywordsLimit: Int {
+        AppConfig.Limits.maxKeywordsPerCategory
+    }
+    
+    /// `true` si se alcanzó el límite de keywords
+    var isKeywordsLimitReached: Bool {
+        keywords.count >= AppConfig.Limits.maxKeywordsPerCategory
     }
     
     // MARK: - Initialization
@@ -171,7 +198,6 @@ final class CategoryEditorViewModel {
     convenience init(suggestedType: CategoryType) {
         self.init(mode: .create)
         self.type = suggestedType
-        // updateSuggestedColor()
     }
     
     /// Inicializa en modo editar.
@@ -209,10 +235,12 @@ final class CategoryEditorViewModel {
     }
     
     private func formatBudgetForInput(_ value: Double) -> String {
+        // Usar dígitos decimales de la moneda actual
+        let currency = CurrencyConfig.defaultCurrency
         if value == floor(value) {
             return String(format: "%.0f", value)
         }
-        return String(format: "%.2f", value)
+        return String(format: "%.\(currency.decimalDigits)f", value)
     }
     
     // MARK: - Icon Actions
@@ -224,7 +252,7 @@ final class CategoryEditorViewModel {
         icon = newIcon
         iconSetManually = true
         isIconPickerPresented = false
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     /// Resetea el icono a la sugerencia automática.
@@ -250,7 +278,7 @@ final class CategoryEditorViewModel {
         color = newColor
         colorSetManually = true
         isColorPickerPresented = false
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     /// Resetea el color a la sugerencia automática.
@@ -266,13 +294,19 @@ final class CategoryEditorViewModel {
     func selectType(_ newType: CategoryType) {
         guard !isSystemCategory else { return }
         type = newType
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     // MARK: - Keyword Actions
     
     /// Agrega la keyword actual del input.
     func addKeyword() {
+        // Verificar límite
+        guard !isKeywordsLimitReached else {
+            Task { @MainActor in Constants.Haptic.warning() }
+            return
+        }
+        
         let normalized = newKeywordInput
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -285,7 +319,7 @@ final class CategoryEditorViewModel {
         
         keywords.append(normalized)
         newKeywordInput = ""
-        hapticLight()
+        Task { @MainActor in Constants.Haptic.light() }
     }
     
     /// Elimina una keyword.
@@ -316,6 +350,11 @@ final class CategoryEditorViewModel {
             return false
         }
         
+        if trimmedName.count > AppConfig.Limits.maxCategoryNameLength {
+            validationError = "El nombre no puede exceder \(AppConfig.Limits.maxCategoryNameLength) caracteres"
+            return false
+        }
+        
         if budgetEnabled && budget == nil && !budgetAmount.isEmpty {
             validationError = "El presupuesto debe ser un número válido mayor a 0"
             return false
@@ -338,7 +377,7 @@ final class CategoryEditorViewModel {
     func applyChanges(to category: Category) -> Bool {
         guard validate() else { return false }
         
-        category.name = name.trimmingCharacters(in: .whitespaces)
+        category.name = String(name.trimmingCharacters(in: .whitespaces).prefix(AppConfig.Limits.maxCategoryNameLength))
         category.icon = icon
         category.color = color
         
@@ -347,7 +386,7 @@ final class CategoryEditorViewModel {
         }
         
         category.budget = budget
-        category.keywords = keywords
+        category.keywords = Array(keywords.prefix(AppConfig.Limits.maxKeywordsPerCategory))
         category.updatedAt = .now
         
         return true
@@ -360,21 +399,13 @@ final class CategoryEditorViewModel {
         guard validate() else { return nil }
         
         return NewCategoryData(
-            name: name.trimmingCharacters(in: .whitespaces),
+            name: String(name.trimmingCharacters(in: .whitespaces).prefix(AppConfig.Limits.maxCategoryNameLength)),
             icon: icon,
             color: color,
             type: type,
             budget: budget,
-            keywords: keywords
+            keywords: Array(keywords.prefix(AppConfig.Limits.maxKeywordsPerCategory))
         )
-    }
-    
-    // MARK: - Haptics
-    
-    private func hapticLight() {
-        Task { @MainActor in
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        }
     }
 }
 
@@ -392,7 +423,7 @@ struct NewCategoryData {
 
 // MARK: - Icon Suggestion Engine
 
-/// Motor de sugerencias para iconos y colores basado en el nombre.
+/// Motor de sugerencias para iconos basado en el nombre.
 enum IconSuggestionEngine {
     
     // MARK: - Icon Suggestions

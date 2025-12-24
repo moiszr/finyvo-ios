@@ -3,6 +3,7 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/11/25.
+//  Integrated with Constants.Haptic, Constants.Animation and AppConfig.Limits.
 //
 
 import SwiftUI
@@ -59,6 +60,13 @@ struct CategoryEditorSheet: View {
     
     // Hero height
     private let heroHeight: CGFloat = 260
+    
+    // MARK: - Currency
+    
+    /// Símbolo de moneda actual
+    private var currencySymbol: String {
+        CurrencyConfig.defaultCurrency.symbol
+    }
 
     // MARK: - Initialization
 
@@ -92,8 +100,6 @@ struct CategoryEditorSheet: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            // ✅ 1 sola vez. Funciona tocando cards/textos/fondo,
-            // pero NO mata el focus al tocar un TextField/Toggle/Button.
             .tapToDismissKeyboard {
                 focusedField = nil
                 isBudgetFocused = false
@@ -116,9 +122,8 @@ struct CategoryEditorSheet: View {
         }
         .sheet(isPresented: $showAutoCategorizationInfo) {
             AutoCategorizationInfoSheet { showAutoCategorizationInfo = false }
-                .presentationDetents([.medium])                  // más espacio
-                .presentationBackgroundInteraction(.automatic)           // se siente nativo
-                .presentationBackground(.regularMaterial)                // mismo fondo “card”
+                .presentationDetents([.medium])
+                .presentationBackgroundInteraction(.automatic)
                 .presentationDragIndicator(.visible)
         }
         .presentationDetents([.large])
@@ -143,7 +148,6 @@ struct CategoryEditorSheet: View {
         guard !hasAppearedOnce && !mode.isEditing else { return }
         hasAppearedOnce = true
 
-        // Delay suave para que el sheet termine animación/presentación.
         try? await Task.sleep(nanoseconds: 300_500_000)
         focusedField = .name
     }
@@ -199,7 +203,6 @@ struct CategoryEditorSheet: View {
 
     private var heroSection: some View {
         ZStack {
-            // Background - extends to top edge of sheet
             editor.color.color
                 .opacity(colorScheme == .dark ? 0.12 : 0.08)
                 .clipShape(
@@ -212,7 +215,6 @@ struct CategoryEditorSheet: View {
                 )
                 .ignoresSafeArea(edges: .top)
 
-            // Content - vertically centered
             VStack(spacing: 16) {
                 
                 // Icon button
@@ -261,9 +263,9 @@ struct CategoryEditorSheet: View {
                             .offset(x: 4, y: 4)
                     }
                 }
-                .buttonStyle(ScaleButtonStyle())
+                .buttonStyle(EditorScaleButtonStyle())
 
-                // Name TextField - transparent, no cursor
+                // Name TextField
                 TextField("Nombre de categoría", text: $editor.name)
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.center)
@@ -271,6 +273,17 @@ struct CategoryEditorSheet: View {
                     .focused($focusedField, equals: .name)
                     .submitLabel(.done)
                     .onSubmit { focusedField = nil }
+                
+                // Character counter
+                if editor.name.count > AppConfig.Limits.maxCategoryNameLength - 5 {
+                    Text("\(editor.name.count)/\(AppConfig.Limits.maxCategoryNameLength)")
+                        .font(.caption2)
+                        .foregroundStyle(
+                            editor.name.count >= AppConfig.Limits.maxCategoryNameLength
+                            ? FColors.red
+                            : FColors.textTertiary
+                        )
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -336,7 +349,7 @@ struct CategoryEditorSheet: View {
                         text: $editor.budgetAmount,
                         placeholder: "0",
                         icon: "dollarsign.circle",
-                        prefix: "RD$",
+                        prefix: currencySymbol,
                         suffix: "/ mes",
                         keyboardType: .decimalPad,
                         autocapitalization: .never,
@@ -346,7 +359,7 @@ struct CategoryEditorSheet: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                 }
             }
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: editor.budgetEnabled)
+            .animation(Constants.Animation.defaultSpring, value: editor.budgetEnabled)
         }
     }
 
@@ -374,6 +387,18 @@ struct CategoryEditorSheet: View {
                     }
 
                     Spacer()
+                    
+                    // Keywords counter
+                    if !editor.keywords.isEmpty {
+                        Text("\(editor.keywordsCount)/\(editor.keywordsLimit)")
+                            .font(.caption)
+                            .foregroundStyle(
+                                editor.isKeywordsLimitReached
+                                ? FColors.red
+                                : FColors.textTertiary
+                            )
+                            .padding(.trailing, 4)
+                    }
 
                     Button {
                         focusedField = nil
@@ -401,12 +426,14 @@ struct CategoryEditorSheet: View {
                     onSubmit: { addKeywordsFromInput() },
                     externalFocus: keywordFocus
                 )
+                .disabled(editor.isKeywordsLimitReached)
+                .opacity(editor.isKeywordsLimitReached ? 0.6 : 1)
 
                 if !editor.keywords.isEmpty {
                     FlowLayout(spacing: FSpacing.sm) {
                         ForEach(editor.keywords, id: \.self) { keyword in
                             KeywordChip(keyword: keyword, color: editor.color.color) {
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                withAnimation(Constants.Animation.quickSpring) {
                                     editor.removeKeyword(keyword)
                                 }
                             }
@@ -436,6 +463,12 @@ struct CategoryEditorSheet: View {
     // MARK: - Helpers
 
     private func addKeywordsFromInput() {
+        // Check limit
+        guard !editor.isKeywordsLimitReached else {
+            Task { @MainActor in Constants.Haptic.warning() }
+            return
+        }
+        
         let input = editor.newKeywordInput
 
         let keywords = input
@@ -447,15 +480,19 @@ struct CategoryEditorSheet: View {
             editor.newKeywordInput = ""
             return
         }
+        
+        // Limit to remaining capacity
+        let remainingCapacity = editor.keywordsLimit - editor.keywordsCount
+        let keywordsToAdd = Array(keywords.prefix(remainingCapacity))
 
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            for keyword in keywords {
+        withAnimation(Constants.Animation.defaultSpring) {
+            for keyword in keywordsToAdd {
                 editor.keywords.append(keyword)
             }
         }
 
         editor.newKeywordInput = ""
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task { @MainActor in Constants.Haptic.light() }
     }
 
     private func save() {
@@ -571,11 +608,11 @@ private struct KeywordChip: View {
 
 // MARK: - Scale Button Style
 
-private struct ScaleButtonStyle: ButtonStyle {
+private struct EditorScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.75), value: configuration.isPressed)
+            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
     }
 }
 
@@ -602,7 +639,7 @@ private struct AutoCategorizationInfoSheet: View {
                     infoItem(
                         icon: "tag.fill",
                         title: "Palabras clave",
-                        description: "Agrega términos separados por comas. Ejemplo: \"uber eats, rappi, mcdonald's\"."
+                        description: "Agrega términos separados por comas. Ejemplo: \"uber eats, rappi, mcdonald's\". Máximo \(AppConfig.Limits.maxKeywordsPerCategory) por categoría."
                     )
                     
                     infoItem(
@@ -630,31 +667,18 @@ private struct AutoCategorizationInfoSheet: View {
             .padding(.bottom, FSpacing.lg)
             .padding(.top, FSpacing.sm)
         }
-        // Fondo del sheet: más limpio y consistente en light/dark
-        .background(
-            LinearGradient(
-                colors: [
-                    FColors.background,
-                    FColors.backgroundSecondary.opacity(colorScheme == .dark ? 0.9 : 0.95)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
     }
     
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: FSpacing.md) {
-
-            // Slot fijo para mantener alineación (sin círculo visible)
             Image(systemName: "sparkles")
                 .font(.title2.weight(.semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(FColors.textPrimary)
                 .frame(width: 52, height: 52, alignment: .center)
-                .contentShape(Rectangle()) // opcional: hace el área “tocable” uniforme
+                .contentShape(Rectangle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Autocategorización")
@@ -676,7 +700,6 @@ private struct AutoCategorizationInfoSheet: View {
         .padding(.bottom, FSpacing.sm)
     }
 
-    
     // MARK: - Info Item
 
     private func infoItem(icon: String, title: String, description: String) -> some View {

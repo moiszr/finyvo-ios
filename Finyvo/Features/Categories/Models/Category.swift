@@ -128,6 +128,24 @@ final class Category {
         return budget > 0
     }
     
+    /// Presupuesto formateado como moneda.
+    ///
+    /// - Parameter currencyCode: Código de moneda (usa default si nil)
+    /// - Returns: String formateado (ej: "RD$5,000")
+    func formattedBudget(currencyCode: String? = nil) -> String {
+        guard let budget, budget > 0 else { return "" }
+        return budget.asCurrency(code: currencyCode)
+    }
+    
+    /// Presupuesto formateado compacto.
+    ///
+    /// - Parameter currencyCode: Código de moneda
+    /// - Returns: String compacto (ej: "RD$5K")
+    func formattedBudgetCompact(currencyCode: String? = nil) -> String {
+        guard let budget, budget > 0 else { return "" }
+        return budget.asCompactCurrency(code: currencyCode)
+    }
+    
     // MARK: - Display Helpers
     
     /// Nombre completo incluyendo padre
@@ -141,6 +159,19 @@ final class Category {
     /// Nombre para mostrar en listas
     var displayName: String {
         name
+    }
+    
+    // MARK: - Validation
+    
+    /// `true` si el nombre es válido (cumple límites)
+    var hasValidName: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return trimmed.count >= 2 && trimmed.count <= AppConfig.Limits.maxCategoryNameLength
+    }
+    
+    /// `true` si las keywords están dentro del límite
+    var hasValidKeywords: Bool {
+        keywords.count <= AppConfig.Limits.maxKeywordsPerCategory
     }
     
     // MARK: - Initializer
@@ -396,7 +427,12 @@ extension Category {
 
 extension Category {
     
-    /// Convierte la categoría a FCardData para usar en FCardCategoryView
+    /// Convierte la categoría a FCardData para usar en FCardCategoryView.
+    ///
+    /// - Parameters:
+    ///   - spent: Monto gastado en el período actual
+    ///   - transactionCount: Número de transacciones
+    /// - Returns: FCardData configurado
     func toCardData(spent: Double = 0, transactionCount: Int = 0) -> FCardData {
         FCardData(
             name: name,
