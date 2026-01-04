@@ -3,6 +3,7 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/5/25.
+//  Updated to support Wallets and other secondary sections.
 //
 
 import SwiftUI
@@ -39,9 +40,8 @@ private struct LoadingView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: FSpacing.lg) {
-                Image(systemName: "chart.pie.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(FColors.brand)
+                Text("FINYVO")
+                    .font(.system(size: 18, weight: .bold))
                 
                 ProgressView()
                     .tint(FColors.textSecondary)
@@ -191,39 +191,40 @@ private struct MainTabView: View {
                     Image(systemName: TabSelection.home.icon)
                         .accessibilityLabel(TabSelection.home.title)
                 }
-                
+
                 Tab(value: TabSelection.budget) {
                     PlaceholderView(title: TabSelection.budget.title, icon: TabSelection.budget.icon)
                 } label: {
                     Image(systemName: TabSelection.budget.icon)
                         .accessibilityLabel(TabSelection.budget.title)
                 }
-                
+
                 Tab(value: TabSelection.reports) {
                     PlaceholderView(title: TabSelection.reports.title, icon: TabSelection.reports.icon)
                 } label: {
                     Image(systemName: TabSelection.reports.icon)
                         .accessibilityLabel(TabSelection.reports.title)
                 }
-                
+
                 Tab(value: TabSelection.more) {
-                    if let section = activeSecondarySection {
-                        CategoriesView()
-                    } else {
-                        Color.clear
-                    }
+                    secondarySectionView
                 } label: {
                     Image(systemName: moreTabIcon)
                         .accessibilityLabel(TabSelection.more.title)
                 }
-                
+
                 Tab(value: TabSelection.search, role: .search) {
                     SearchTabView()
                 } label: {
                     Label(TabSelection.search.title, systemImage: TabSelection.search.icon)
                 }
             }
-            .tint(FColors.brand)
+            .tint(.primary)                      // ✅ blanco/negro automático (light/dark)
+            .symbolRenderingMode(.monochrome)    // ✅ todos los SF Symbols en monocromo
+            .blur(radius: isMoreMenuPresented ? 18 : 0, opaque: true)
+            .animation(.easeOut(duration: 0.28), value: isMoreMenuPresented)
+            .allowsHitTesting(!isMoreMenuPresented)
+            .ignoresSafeArea()
             
             if isMoreMenuPresented {
                 MoreMenuOverlay(
@@ -233,6 +234,47 @@ private struct MainTabView: View {
                 )
                 .zIndex(100)
             }
+        }
+    }
+    
+    // MARK: - Secondary Section View
+    
+    /// Retorna la vista correcta según la sección secundaria activa
+    @ViewBuilder
+    private var secondarySectionView: some View {
+        if let section = activeSecondarySection {
+            switch section {
+            case .categories:
+                NavigationStack {
+                    CategoriesView()
+                }
+            case .wallets:
+                NavigationStack {
+                    WalletsView()
+                }
+            case .goals:
+                NavigationStack {
+                    PlaceholderView(title: section.title, icon: section.icon)
+                }
+            case .subscriptions:
+                NavigationStack {
+                    PlaceholderView(title: section.title, icon: section.icon)
+                }
+            case .export:
+                NavigationStack {
+                    PlaceholderView(title: section.title, icon: section.icon)
+                }
+            case .help:
+                NavigationStack {
+                    PlaceholderView(title: section.title, icon: section.icon)
+                }
+            case .settings:
+                NavigationStack {
+                    PlaceholderView(title: section.title, icon: section.icon)
+                }
+            }
+        } else {
+            Color.clear
         }
     }
     
@@ -424,7 +466,7 @@ private struct MoreMenuOverlay: View {
         }
         .onAppear(perform: showWithAnimation)
         .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape, dismissMenu)   // gesto de “Z” para cerrar
+        .accessibilityAction(.escape, dismissMenu)   // gesto de "Z" para cerrar
     }
 
     // MARK: - Menu Content
@@ -469,28 +511,10 @@ private struct MoreMenuOverlay: View {
     
     @ViewBuilder
     private var backgroundLayers: some View {
-        GaussianBlurView(isVisible: isBlurVisible)
+        // Solo tint (el blur REAL ya lo está haciendo el TabView detrás)
+        (colorScheme == .dark ? Color.black.opacity(0.48) : Color.black.opacity(0.10))
+            .opacity(overlayOpacity)
             .ignoresSafeArea()
-        
-        Rectangle()
-            .fill(
-                colorScheme == .dark
-                    ? Color.black.opacity(0.35 * overlayOpacity)
-                    : Color.white.opacity(0.25 * overlayOpacity)
-            )
-            .ignoresSafeArea()
-        
-        LinearGradient(
-            colors: [
-                colorScheme == .dark
-                    ? Color.white.opacity(0.04)
-                    : Color.white.opacity(0.35),
-                .clear
-            ],
-            startPoint: .top,
-            endPoint: .center
-        )
-        .opacity(overlayOpacity)
     }
     
     // MARK: - View Builders
@@ -620,7 +644,7 @@ private struct MoreMenuOverlay: View {
     }
     
     private func handleSelection(_ item: MenuItem) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task { @MainActor in Constants.Haptic.light() }
         
         switch item.action {
         case .tab(let tab):
@@ -633,31 +657,6 @@ private struct MoreMenuOverlay: View {
         }
         
         dismissWithAnimation {}
-    }
-}
-
-
-// MARK: - Gaussian Blur View (seguro y compatible)
-
-private struct GaussianBlurView: UIViewRepresentable {
-    let isVisible: Bool
-
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        // El estilo systemUltraThinMaterial Dark/Light se adapta solo
-        let effect = UIBlurEffect(style: .systemChromeMaterial)
-        let view = UIVisualEffectView(effect: effect)
-        view.alpha = isVisible ? 1 : 0
-        return view
-    }
-
-    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
-        UIView.animate(
-            withDuration: 0.35,
-            delay: 0,
-            options: [.curveEaseOut, .allowUserInteraction]
-        ) {
-            uiView.alpha = isVisible ? 1 : 0
-        }
     }
 }
 

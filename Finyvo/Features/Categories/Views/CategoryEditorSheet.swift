@@ -128,8 +128,6 @@ struct CategoryEditorSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(.regularMaterial)
-        .presentationCornerRadius(32)
         .interactiveDismissDisabled(editor.hasChanges)
         .task { await handleInitialFocusIfNeeded() }
         .alert("Descartar cambios", isPresented: $showDiscardAlert) {

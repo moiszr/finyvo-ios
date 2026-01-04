@@ -77,8 +77,6 @@ struct CategoryDetailSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(.regularMaterial)
-        .presentationCornerRadius(32)
     }
     
     // MARK: - Toolbar

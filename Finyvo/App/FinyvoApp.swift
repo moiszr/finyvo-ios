@@ -21,7 +21,7 @@ struct FinyvoApp: App {
         let schema = Schema([
             Category.self,
             Tag.self,          // ← AGREGADO: Modelo de etiquetas
-            // Wallet.self,    // ← Agregar cuando crees el modelo
+            Wallet.self,    // ← Agregar cuando crees el modelo
             // Transaction.self, // ← Agregar cuando crees el modelo
         ])
         

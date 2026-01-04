@@ -63,7 +63,7 @@ enum AppConfig {
         static let maxTagsPerTransaction = 10
         
         /// Máximo de billeteras
-        static let maxWallets = 20
+        static let maxWallets = 8
         
         /// Máximo de metas activas
         static let maxActiveGoals = 10
@@ -82,6 +82,12 @@ enum AppConfig {
         
         /// Longitud mínima de nombre de tag
         static let minTagNameLength = 2
+        
+        /// Longitud máxima de nombre de wallet
+        static let maxWalletNameLength = 30
+        
+        /// Longitud máxima de notas de wallet
+        static let maxWalletNotesLength = 200
     }
     
     // MARK: - Defaults

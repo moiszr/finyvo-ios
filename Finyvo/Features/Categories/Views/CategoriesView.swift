@@ -98,19 +98,13 @@ struct CategoriesView: View {
                 }
             }
             .navigationTitle("Categorías")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        // TODO: Implementar lógica de Atras.
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(FColors.textPrimary)
-                    }
-                    .accessibilityLabel("Atras")
+                ToolbarItem(placement: .principal) {
+                    Text("Categorías")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(FColors.textPrimary)
                 }
-                
                 // Botón Tags
                 ToolbarItem(placement: .primaryAction) {
                     Button {

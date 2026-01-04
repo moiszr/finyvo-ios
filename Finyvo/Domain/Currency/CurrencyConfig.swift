@@ -175,4 +175,14 @@ enum CurrencyConfig {
             ("Oceanía", all.filter { ["AUD", "NZD"].contains($0.code) }),
         ]
     }
+    
+    // MARK: - Convenience Accessors
+    static var allCurrencies: [Currency] {
+        all
+    }
+    
+    /// Monedas populares
+    static var popularCurrencies: [Currency] {
+        popular
+    }
 }

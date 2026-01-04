@@ -3,42 +3,10 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/20/25.
+//  Updated for maxLength support and keyboard toolbar.
 //
 
 import SwiftUI
-
-// MARK: - FInput
-
-/// Input premium de Finyvo - minimalista, fluido y elegante.
-///
-/// ## Características
-/// - Diseño pill ultra-redondeado
-/// - Animaciones suaves con spring
-/// - Soporte para icono leading
-/// - Soporte para botón trailing (ej: agregar, limpiar)
-/// - Estados: normal, focused, disabled, error
-/// - Haptic feedback sutil
-/// - Accesibilidad completa
-///
-/// ## Uso básico
-/// ```swift
-/// FInput(
-///     text: $amount,
-///     placeholder: "0",
-///     icon: "dollarsign.circle"
-/// )
-/// ```
-///
-/// ## Con acción trailing
-/// ```swift
-/// FInput(
-///     text: $keyword,
-///     placeholder: "uber eats, rappi",
-///     icon: "magnifyingglass",
-///     trailingIcon: "plus.circle.fill",
-///     trailingAction: { addKeyword() }
-/// )
-/// ```
 
 struct FInput: View {
     
@@ -60,6 +28,17 @@ struct FInput: View {
     var autocapitalization: TextInputAutocapitalization = .sentences
     var autocorrection: Bool = true
     var submitLabel: SubmitLabel = .done
+    
+    // Personalización Visual
+    var textAlignment: TextAlignment = .leading
+    var cornerRadius: CGFloat = 18 // Aumentado ligeramente
+    var textFont: Font = .body
+    
+    // NUEVO: Límite de caracteres
+    var maxLength: Int? = nil
+    
+    // NUEVO: Mostrar toolbar con botón Listo (para teclados numéricos)
+    var showDoneButton: Bool = false
     
     var isDisabled: Bool = false
     var error: String? = nil
@@ -89,7 +68,6 @@ struct FInput: View {
     // MARK: - Constants
     
     private let height: CGFloat = 52
-    private let cornerRadius: CGFloat = 16
     
     // MARK: - Computed Properties
     
@@ -152,6 +130,7 @@ struct FInput: View {
         isDisabled ? FColors.textTertiary : FColors.textPrimary
     }
     
+    // Init actualizado
     init(
         text: Binding<String>,
         placeholder: String,
@@ -167,6 +146,11 @@ struct FInput: View {
         autocapitalization: TextInputAutocapitalization = .sentences,
         autocorrection: Bool = true,
         submitLabel: SubmitLabel = .done,
+        textAlignment: TextAlignment = .leading,
+        cornerRadius: CGFloat = 18,
+        textFont: Font = .body,
+        maxLength: Int? = nil,
+        showDoneButton: Bool = false,
         isDisabled: Bool = false,
         error: String? = nil,
         onSubmit: (() -> Void)? = nil,
@@ -190,6 +174,12 @@ struct FInput: View {
         self.autocapitalization = autocapitalization
         self.autocorrection = autocorrection
         self.submitLabel = submitLabel
+        
+        self.textAlignment = textAlignment
+        self.cornerRadius = cornerRadius
+        self.textFont = textFont
+        self.maxLength = maxLength
+        self.showDoneButton = showDoneButton
 
         self.isDisabled = isDisabled
         self.error = error
@@ -217,15 +207,16 @@ struct FInput: View {
                 // Prefix
                 if let prefix = prefix {
                     Text(prefix)
-                        .font(.body.weight(.semibold))
+                        .font(textFont.weight(.semibold))
                         .foregroundStyle(FColors.textSecondary)
                 }
                 
                 // TextField
                 TextField(placeholder, text: $text)
-                    .font(.body)
+                    .font(textFont)
                     .foregroundStyle(textColor)
                     .tint(FColors.brand)
+                    .multilineTextAlignment(textAlignment)
                     .keyboardType(keyboardType)
                     .textContentType(textContentType)
                     .textInputAutocapitalization(autocapitalization)
@@ -236,6 +227,12 @@ struct FInput: View {
                     .onSubmit {
                         onSubmit?()
                         externalFocus?.wrappedValue = false
+                    }
+                    .onChange(of: text) { oldValue, newValue in
+                        // Aplicar límite de caracteres si está definido
+                        if let maxLength = maxLength, newValue.count > maxLength {
+                            text = String(newValue.prefix(maxLength))
+                        }
                     }
                 
                 // Suffix
@@ -254,7 +251,7 @@ struct FInput: View {
                         Image(systemName: trailingIcon)
                             .font(.system(size: 20, weight: .medium))
                             .foregroundStyle(FColors.brand)
-                            .frame(width: 44, height: 44)      // ✅ área tocable
+                            .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(TrailingButtonStyle())
@@ -283,6 +280,20 @@ struct FInput: View {
                     .foregroundStyle(FColors.danger)
                     .padding(.horizontal, 4)
                     .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .toolbar {
+            // Toolbar para teclados numéricos (solo si showDoneButton es true)
+            if showDoneButton && isFocusedInternal {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Listo") {
+                        isFocusedInternal = false
+                        onSubmit?()
+                    }
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(FColors.brand)
+                }
             }
         }
         .onChange(of: isFocusedInternal) { _, newValue in
@@ -315,7 +326,6 @@ struct FInput: View {
 }
 
 // MARK: - Trailing Button Style
-
 private struct TrailingButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -325,20 +335,17 @@ private struct TrailingButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - FInput Modifiers
-
+// MARK: - Modifiers Extension
 extension FInput {
-    
-    /// Configura el input para entrada numérica/moneda.
     func numeric() -> FInput {
         var copy = self
         copy.keyboardType = .decimalPad
         copy.autocapitalization = .never
         copy.autocorrection = false
+        copy.showDoneButton = true
         return copy
     }
     
-    /// Configura el input para keywords/tags.
     func keywords() -> FInput {
         var copy = self
         copy.keyboardType = .default
@@ -346,118 +353,34 @@ extension FInput {
         copy.autocorrection = false
         return copy
     }
-}
-
-// MARK: - FInputLabel
-
-/// Label opcional para acompañar un FInput.
-struct FInputLabel: View {
-    let text: String
-    var icon: String? = nil
-    var iconColor: Color = FColors.brand
     
-    var body: some View {
-        HStack(spacing: 6) {
-            if let icon = icon {
-                Image(systemName: icon)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(iconColor)
-            }
-            
-            Text(text)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(FColors.textSecondary)
-        }
+    func textAlignment(_ alignment: TextAlignment) -> FInput {
+        var copy = self
+        copy.textAlignment = alignment
+        return copy
     }
-}
-
-// MARK: - Previews
-
-#Preview("Basic") {
-    VStack(spacing: 24) {
-        FInput(
-            text: .constant(""),
-            placeholder: "Buscar categorías...",
-            icon: "magnifyingglass"
-        )
-        
-        FInput(
-            text: .constant("5000"),
-            placeholder: "0",
-            icon: "dollarsign.circle",
-            prefix: "RD$",
-            suffix: "/ mes"
-        )
-        .numeric()
-        
-        FInput(
-            text: .constant("uber eats"),
-            placeholder: "uber eats, rappi, mcdonald's",
-            icon: "magnifyingglass",
-            trailingIcon: "plus.circle.fill",
-            trailingAction: {}
-        )
-        .keywords()
+    
+    func pill() -> FInput {
+        var copy = self
+        copy.cornerRadius = 26
+        return copy
     }
-    .padding()
-}
-
-#Preview("States") {
-    VStack(spacing: 24) {
-        VStack(alignment: .leading, spacing: 8) {
-            FInputLabel(text: "Normal")
-            FInput(
-                text: .constant(""),
-                placeholder: "Placeholder"
-            )
-        }
-        
-        VStack(alignment: .leading, spacing: 8) {
-            FInputLabel(text: "Con texto")
-            FInput(
-                text: .constant("Contenido"),
-                placeholder: "Placeholder"
-            )
-        }
-        
-        VStack(alignment: .leading, spacing: 8) {
-            FInputLabel(text: "Disabled")
-            FInput(
-                text: .constant("Disabled"),
-                placeholder: "Placeholder",
-                isDisabled: true
-            )
-        }
-        
-        VStack(alignment: .leading, spacing: 8) {
-            FInputLabel(text: "Con error")
-            FInput(
-                text: .constant(""),
-                placeholder: "Placeholder",
-                error: "Este campo es requerido"
-            )
-        }
+    
+    func font(_ font: Font) -> FInput {
+        var copy = self
+        copy.textFont = font
+        return copy
     }
-    .padding()
-}
-
-#Preview("Dark Mode") {
-    VStack(spacing: 24) {
-        FInput(
-            text: .constant(""),
-            placeholder: "Buscar...",
-            icon: "magnifyingglass"
-        )
-        
-        FInput(
-            text: .constant("10000"),
-            placeholder: "0",
-            prefix: "RD$",
-            suffix: "/ mes"
-        )
-        .numeric()
+    
+    func maxLength(_ length: Int) -> FInput {
+        var copy = self
+        copy.maxLength = length
+        return copy
     }
-    .padding()
-    .background(FColors.background)
-    .preferredColorScheme(.dark)
+    
+    func withDoneButton(_ show: Bool = true) -> FInput {
+        var copy = self
+        copy.showDoneButton = show
+        return copy
+    }
 }
