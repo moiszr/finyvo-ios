@@ -5,6 +5,12 @@
 //  Created by Moises Núñez on 12/24/25.
 //  ViewModel principal para la gestión de billeteras.
 //
+//  v2.2 - Production Fixes:
+//  - @MainActor isolation para SwiftData concurrency safety
+//  - clearDefaultWallet actualiza updatedAt
+//  - Resultado de operaciones para manejo de errores
+//  - Invariante "exactamente 1 default" reforzada
+//
 
 import SwiftUI
 import SwiftData
@@ -28,6 +34,7 @@ import SwiftData
 /// }
 /// ```
 @Observable
+@MainActor
 final class WalletsViewModel {
     
     // MARK: - Dependencies
@@ -149,6 +156,9 @@ final class WalletsViewModel {
         
         modelContext = context
         loadWallets()
+        
+        // Normalizar: asegurar exactamente 1 default si hay wallets
+        normalizeDefaultWallet()
     }
     
     // MARK: - Data Loading
@@ -189,9 +199,53 @@ final class WalletsViewModel {
         }
     }
     
+    // MARK: - Default Wallet Invariant
+    
+    /// Normaliza el estado para asegurar exactamente 1 default wallet si hay wallets.
+    /// Llamar después de cargar o en operaciones que puedan romper la invariante.
+    private func normalizeDefaultWallet() {
+        guard !wallets.isEmpty else { return }
+        
+        let defaultWallets = wallets.filter { $0.isDefault }
+        
+        if defaultWallets.isEmpty {
+            // No hay default → marcar la primera
+            wallets.first?.isDefault = true
+            wallets.first?.updatedAt = .now
+            save()
+            
+            if AppConfig.isDebugMode {
+                print("⚠️ WalletsViewModel: No había default, marcando primera wallet")
+            }
+        } else if defaultWallets.count > 1 {
+            // Múltiples defaults → dejar solo la primera
+            for (index, wallet) in defaultWallets.enumerated() {
+                if index > 0 {
+                    wallet.isDefault = false
+                    wallet.updatedAt = .now
+                }
+            }
+            save()
+            
+            if AppConfig.isDebugMode {
+                print("⚠️ WalletsViewModel: Múltiples defaults encontrados, normalizando")
+            }
+        }
+    }
+    
     // MARK: - CRUD Operations
     
+    /// Resultado de operación de creación
+    enum CreateWalletResult: Sendable {
+        case success(walletID: UUID)
+        case limitReached
+        case saveFailed
+        case contextNotConfigured
+    }
+    
     /// Crea una nueva billetera.
+    /// - Returns: Resultado de la operación para manejo en UI
+    @discardableResult
     func createWallet(
         name: String,
         type: WalletType,
@@ -203,14 +257,17 @@ final class WalletsViewModel {
         paymentReminderDay: Int? = nil,
         notes: String? = nil,
         lastFourDigits: String? = nil
-    ) {
-        guard let context = requireContext() else { return }
+    ) -> CreateWalletResult {
+        guard let context = modelContext else {
+            print("❌ WalletsViewModel: ModelContext no configurado")
+            return .contextNotConfigured
+        }
         
         // Validar límite
         guard !isLimitReached else {
             error = .limitReached
-            Task { @MainActor in Constants.Haptic.error() }
-            return
+            Constants.Haptic.error()
+            return .limitReached
         }
         
         // Si es default, quitar default de las demás
@@ -233,36 +290,57 @@ final class WalletsViewModel {
         )
         
         context.insert(wallet)
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.success() }
         
-        if AppConfig.isDebugMode {
-            print("✅ WalletsViewModel: Wallet '\(name)' creada")
+        do {
+            try context.save()
+            loadWallets()
+            Constants.Haptic.success()
+            
+            if AppConfig.isDebugMode {
+                print("✅ WalletsViewModel: Wallet '\(name)' creada")
+            }
+            
+            return .success(walletID: wallet.id)
+        } catch {
+            self.error = .saveFailed
+            Constants.Haptic.error()
+            print("❌ WalletsViewModel: Error al guardar - \(error)")
+            return .saveFailed
         }
     }
     
     /// Actualiza una billetera existente.
-    func updateWallet(_ wallet: Wallet) {
+    @discardableResult
+    func updateWallet(_ wallet: Wallet) -> Bool {
         wallet.updatedAt = .now
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.light() }
+        
+        if save() {
+            loadWallets()
+            Constants.Haptic.light()
+            return true
+        }
+        return false
     }
     
     /// Establece una billetera como default.
-    func setAsDefault(_ wallet: Wallet) {
+    @discardableResult
+    func setAsDefault(_ wallet: Wallet) -> Bool {
         clearDefaultWallet()
         wallet.isDefault = true
         wallet.updatedAt = .now
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.success() }
+        
+        if save() {
+            loadWallets()
+            Constants.Haptic.success()
+            return true
+        }
+        return false
     }
     
     /// Ajusta el balance de una billetera manualmente.
     /// Crea una transacción de ajuste implícita.
-    func adjustBalance(_ wallet: Wallet, newBalance: Double, reason: String? = nil) {
+    @discardableResult
+    func adjustBalance(_ wallet: Wallet, newBalance: Double, reason: String? = nil) -> Bool {
         let difference = newBalance - wallet.currentBalance
         
         wallet.currentBalance = newBalance
@@ -276,50 +354,76 @@ final class WalletsViewModel {
         //     note: reason ?? "Ajuste de balance"
         // )
         
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.success() }
-        
-        if AppConfig.isDebugMode {
-            print("✅ WalletsViewModel: Balance ajustado de \(wallet.name): \(difference >= 0 ? "+" : "")\(difference)")
+        if save() {
+            loadWallets()
+            Constants.Haptic.success()
+            
+            if AppConfig.isDebugMode {
+                print("✅ WalletsViewModel: Balance ajustado de \(wallet.name): \(difference >= 0 ? "+" : "")\(difference)")
+            }
+            return true
         }
+        return false
     }
     
     /// Archiva una billetera.
-    func archiveWallet(_ wallet: Wallet) {
+    @discardableResult
+    func archiveWallet(_ wallet: Wallet) -> Bool {
         guard !wallet.isDefault else {
             error = .cannotArchiveDefault
-            Task { @MainActor in Constants.Haptic.error() }
-            return
+            Constants.Haptic.error()
+            return false
         }
         
         wallet.isArchived = true
         wallet.updatedAt = .now
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.success() }
+        
+        if save() {
+            loadWallets()
+            Constants.Haptic.success()
+            return true
+        }
+        return false
     }
     
     /// Restaura una billetera archivada.
-    func restoreWallet(_ wallet: Wallet) {
+    @discardableResult
+    func restoreWallet(_ wallet: Wallet) -> Bool {
         wallet.isArchived = false
         wallet.updatedAt = .now
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.success() }
+        
+        if save() {
+            loadWallets()
+            Constants.Haptic.success()
+            return true
+        }
+        return false
     }
     
     /// Elimina permanentemente una billetera.
-    func deleteWallet(_ wallet: Wallet) {
-        guard let context = requireContext() else { return }
+    @discardableResult
+    func deleteWallet(_ wallet: Wallet) -> Bool {
+        guard let context = modelContext else { return false }
+        
+        let wasDefault = wallet.isDefault
         
         // No permitir eliminar si tiene transacciones
         // TODO: Verificar transacciones vinculadas
         
         context.delete(wallet)
-        save()
-        loadWallets()
-        Task { @MainActor in Constants.Haptic.success() }
+        
+        if save() {
+            loadWallets()
+            
+            // Si era default, normalizar para asignar nuevo default
+            if wasDefault {
+                normalizeDefaultWallet()
+            }
+            
+            Constants.Haptic.success()
+            return true
+        }
+        return false
     }
     
     // MARK: - Reordering
@@ -333,9 +437,9 @@ final class WalletsViewModel {
             wallet.sortOrder = index
         }
         
-        save()
+        _ = save()
         loadWallets()
-        Task { @MainActor in Constants.Haptic.light() }
+        Constants.Haptic.light()
     }
     
     // MARK: - Navigation Actions
@@ -344,7 +448,7 @@ final class WalletsViewModel {
     func presentCreate() {
         guard !isLimitReached else {
             error = .limitReached
-            Task { @MainActor in Constants.Haptic.error() }
+            Constants.Haptic.error()
             return
         }
         
@@ -377,9 +481,9 @@ final class WalletsViewModel {
         }
         
         // Limpiar selección después de la animación
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            self.selectedWallet = nil
-            self.selectedWalletID = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.selectedWallet = nil
+            self?.selectedWalletID = nil
         }
     }
     
@@ -411,7 +515,7 @@ final class WalletsViewModel {
     /// Confirma y ejecuta el archivo pendiente.
     func confirmArchive() {
         guard let wallet = walletPendingAction else { return }
-        archiveWallet(wallet)
+        _ = archiveWallet(wallet)
         cleanupPendingAction()
         isArchiveAlertPresented = false
     }
@@ -419,7 +523,7 @@ final class WalletsViewModel {
     /// Confirma y ejecuta la eliminación pendiente.
     func confirmDelete() {
         guard let wallet = walletPendingAction else { return }
-        deleteWallet(wallet)
+        _ = deleteWallet(wallet)
         cleanupPendingAction()
         isDeleteAlertPresented = false
     }
@@ -437,21 +541,16 @@ final class WalletsViewModel {
         walletPendingAction = nil
     }
     
+    /// Guarda el contexto y retorna éxito/fallo
     @discardableResult
-    private func requireContext() -> ModelContext? {
-        guard let context = modelContext else {
-            print("❌ WalletsViewModel: ModelContext no configurado")
-            return nil
-        }
-        return context
-    }
-    
-    private func save() {
+    private func save() -> Bool {
         do {
             try modelContext?.save()
+            return true
         } catch {
             self.error = .saveFailed
             print("❌ WalletsViewModel: Error al guardar - \(error)")
+            return false
         }
     }
     
@@ -459,9 +558,11 @@ final class WalletsViewModel {
         (wallets.map(\.sortOrder).max() ?? -1) + 1
     }
     
+    /// Quita el flag isDefault de todas las wallets (actualiza updatedAt)
     private func clearDefaultWallet() {
         for wallet in wallets where wallet.isDefault {
             wallet.isDefault = false
+            wallet.updatedAt = .now
         }
     }
 }
@@ -469,7 +570,7 @@ final class WalletsViewModel {
 // MARK: - Wallet Error
 
 /// Errores posibles en operaciones de billetera.
-enum WalletError: Error, LocalizedError, Identifiable {
+enum WalletError: Error, LocalizedError, Identifiable, Sendable {
     case notFound
     case duplicateName
     case saveFailed
@@ -519,7 +620,7 @@ enum WalletError: Error, LocalizedError, Identifiable {
 // MARK: - Wallet Editor Mode
 
 /// Modo del editor de billeteras.
-enum WalletEditorMode: Equatable {
+enum WalletEditorMode: Equatable, Sendable {
     case create
     case edit(Wallet)
     

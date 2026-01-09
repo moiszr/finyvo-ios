@@ -5,10 +5,11 @@
 //  Created by Moises Núñez on 12/24/25.
 //  ViewModel para el formulario de crear/editar billetera.
 //
-//  v2.1 - Swift 6 refinements:
-//  - Sendable conformance donde aplica
-//  - MainActor isolation para operaciones UI
-//  - Sanitización mejorada de inputs
+//  v2.2 - Production Fixes:
+//  - hasChanges mejorado para modo create (detecta TODOS los cambios)
+//  - Limpieza de lastFourDigits al cambiar tipo que no soporta tarjeta
+//  - trim whitespacesAndNewlines para mejor sanitización
+//  - Sanitización decimal alineada a moneda
 //
 
 import SwiftUI
@@ -50,6 +51,12 @@ final class WalletEditorViewModel {
                 paymentReminderEnabled = false
                 paymentReminderDay = 15
             }
+            
+            // ✅ FIX: Limpiar lastFourDigits si el tipo no soporta tarjeta
+            if !type.supportsLastFourDigits {
+                lastFourDigits = ""
+                lastFourEnabled = false
+            }
         }
     }
     
@@ -59,7 +66,6 @@ final class WalletEditorViewModel {
     
     var initialBalanceString: String = "" {
         didSet {
-            // Sanitización: permitir solo dígitos, punto y coma como separador decimal
             let sanitized = sanitizeDecimalInput(initialBalanceString)
             if sanitized != initialBalanceString {
                 initialBalanceString = sanitized
@@ -69,10 +75,9 @@ final class WalletEditorViewModel {
     
     var lastFourDigits: String = "" {
         didSet {
-            // Solo dígitos, máximo 4
-            let filtered = lastFourDigits.filter { $0.isNumber }
-            if filtered != lastFourDigits || filtered.count > 4 {
-                lastFourDigits = String(filtered.prefix(4))
+            let sanitized = String(lastFourDigits.filter(\.isNumber).prefix(4))
+            if sanitized != lastFourDigits {
+                lastFourDigits = sanitized
             }
         }
     }
@@ -98,43 +103,61 @@ final class WalletEditorViewModel {
     private(set) var iconSetManually: Bool = false
     private(set) var colorSetManually: Bool = false
     
+    // MARK: - Initial Values for Change Detection (Create Mode)
+    
+    private let initialType: WalletType
+    private let initialIcon: FWalletIcon
+    private let initialColor: FCardColor
+    private let initialCurrencyCode: String
+    private let initialIsDefault: Bool
+    private let initialPaymentReminderEnabled: Bool
+    private let initialPaymentReminderDay: Int
+    
     // MARK: - Computed Properties
     
     var isEditing: Bool {
         mode.isEditing
     }
     
-    /// Balance inicial parseado como Double
     var initialBalance: Double {
         let currency = CurrencyConfig.currency(for: currencyCode) ?? CurrencyConfig.defaultCurrency
         return currency.parse(initialBalanceString) ?? 0
     }
     
-    /// Currency object actual
     var selectedCurrency: Currency? {
         CurrencyConfig.currency(for: currencyCode)
     }
     
-    /// Símbolo de la moneda actual
     var currencySymbol: String {
         selectedCurrency?.symbol ?? currencyCode
     }
     
-    /// Validación: nombre tiene al menos 2 caracteres
     var isValid: Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.count >= 2 && trimmed.count <= AppConfig.Limits.maxWalletNameLength
     }
     
-    /// Detecta si hay cambios sin guardar
+    /// ✅ FIX: Detecta si hay cambios sin guardar (incluye TODOS los campos en modo create)
     var hasChanges: Bool {
         guard let original = mode.wallet else {
-            // En modo crear, hay cambios si el nombre es válido
-            return name.trimmingCharacters(in: .whitespaces).count >= 2
+            // En modo crear: detectar CUALQUIER cambio desde valores iniciales
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            return !trimmedName.isEmpty ||
+                   type != initialType ||
+                   iconSetManually ||
+                   colorSetManually ||
+                   currencyCode != initialCurrencyCode ||
+                   !initialBalanceString.isEmpty ||
+                   !lastFourDigits.isEmpty ||
+                   isDefault != initialIsDefault ||
+                   paymentReminderEnabled != initialPaymentReminderEnabled ||
+                   paymentReminderDay != initialPaymentReminderDay ||
+                   !notes.isEmpty
         }
         
         // En modo editar, comparar con valores originales
-        return name.trimmingCharacters(in: .whitespaces) != original.name ||
+        return name.trimmingCharacters(in: .whitespacesAndNewlines) != original.name ||
                type != original.type ||
                icon != original.icon ||
                color != original.color ||
@@ -159,6 +182,15 @@ final class WalletEditorViewModel {
     
     init(mode: WalletEditorMode) {
         self.mode = mode
+        
+        let defaultType: WalletType = .checking
+        self.initialType = defaultType
+        self.initialIcon = defaultType.defaultIcon
+        self.initialColor = defaultType.defaultColor
+        self.initialCurrencyCode = AppConfig.Defaults.currencyCode
+        self.initialIsDefault = false
+        self.initialPaymentReminderEnabled = false
+        self.initialPaymentReminderDay = 15
         
         if let wallet = mode.wallet {
             populateFromWallet(wallet)
@@ -188,7 +220,6 @@ final class WalletEditorViewModel {
         lastFourDigits = wallet.lastFourDigits ?? ""
         notes = wallet.notes ?? ""
         
-        // Set toggle states basados en valores existentes
         balanceEnabled = wallet.initialBalance != 0
         lastFourEnabled = !(wallet.lastFourDigits ?? "").isEmpty
         
@@ -197,7 +228,6 @@ final class WalletEditorViewModel {
             paymentReminderDay = reminderDay
         }
         
-        // Marcar como manualmente seleccionados ya que vienen del wallet
         iconSetManually = true
         colorSetManually = true
     }
@@ -213,37 +243,35 @@ final class WalletEditorViewModel {
         lastFourEnabled = false
     }
     
-    /// Formatea un balance para mostrar en el input
     private func formatBalanceForInput(_ value: Double) -> String {
         if value == 0 { return "" }
-        // Si es número entero, no mostrar decimales
         if value == floor(value) {
             return String(format: "%.0f", value)
         }
         return String(format: "%.2f", value)
     }
     
-    /// Sanitiza input decimal permitiendo solo caracteres válidos
+    /// ✅ Mejorado: considera los decimales de la moneda actual
     private func sanitizeDecimalInput(_ input: String) -> String {
         var result = ""
         var hasDecimalSeparator = false
         var decimalCount = 0
         
+        let maxDecimals = selectedCurrency?.decimalDigits ?? 2
+        
         for char in input {
             if char.isNumber {
-                // Limitar decimales según la moneda (generalmente 2)
                 if hasDecimalSeparator {
-                    guard decimalCount < 2 else { continue }
+                    guard decimalCount < maxDecimals else { continue }
                     decimalCount += 1
                 }
                 result.append(char)
             } else if char == "." || char == "," {
-                // Solo permitir un separador decimal
                 guard !hasDecimalSeparator else { continue }
+                guard maxDecimals > 0 else { continue }
                 hasDecimalSeparator = true
-                result.append(".")  // Normalizar a punto
+                result.append(".")
             } else if char == "-" && result.isEmpty {
-                // Permitir signo negativo solo al inicio
                 result.append(char)
             }
         }
@@ -277,17 +305,23 @@ final class WalletEditorViewModel {
     
     // MARK: - Save Actions
     
-    /// Aplica los cambios a un wallet existente (modo edición)
     @discardableResult
     func applyChanges(to wallet: Wallet) -> Bool {
-        wallet.name = name.trimmingCharacters(in: .whitespaces)
+        wallet.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         wallet.type = type
         wallet.icon = icon
         wallet.color = color
         wallet.currencyCode = currencyCode
         wallet.initialBalance = balanceEnabled ? initialBalance : 0
         wallet.isDefault = isDefault
-        wallet.lastFourDigits = lastFourEnabled ? (lastFourDigits.isEmpty ? nil : lastFourDigits) : nil
+        
+        // ✅ FIX: Solo guardar lastFour si el tipo lo soporta Y está habilitado
+        if type.supportsLastFourDigits && lastFourEnabled && !lastFourDigits.isEmpty {
+            wallet.lastFourDigits = lastFourDigits
+        } else {
+            wallet.lastFourDigits = nil
+        }
+        
         wallet.notes = notes.isEmpty ? nil : notes
         wallet.paymentReminderDay = paymentReminderEnabled ? paymentReminderDay : nil
         wallet.updatedAt = .now
@@ -295,12 +329,19 @@ final class WalletEditorViewModel {
         return true
     }
     
-    /// Construye los datos para crear un nuevo wallet
     func buildNewWalletData() -> NewWalletData? {
         guard isValid else { return nil }
         
+        // ✅ FIX: Solo incluir lastFour si el tipo lo soporta
+        let finalLastFour: String?
+        if type.supportsLastFourDigits && lastFourEnabled && !lastFourDigits.isEmpty {
+            finalLastFour = lastFourDigits
+        } else {
+            finalLastFour = nil
+        }
+        
         return NewWalletData(
-            name: name.trimmingCharacters(in: .whitespaces),
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             type: type,
             icon: icon,
             color: color,
@@ -309,7 +350,7 @@ final class WalletEditorViewModel {
             isDefault: isDefault,
             paymentReminderDay: paymentReminderEnabled ? paymentReminderDay : nil,
             notes: notes.isEmpty ? nil : notes,
-            lastFourDigits: lastFourEnabled ? (lastFourDigits.isEmpty ? nil : lastFourDigits) : nil
+            lastFourDigits: finalLastFour
         )
     }
 }
@@ -327,4 +368,13 @@ struct NewWalletData: Sendable {
     let paymentReminderDay: Int?
     let notes: String?
     let lastFourDigits: String?
+}
+
+// MARK: - WalletType Extension
+
+extension WalletType {
+    /// `true` si este tipo soporta últimos 4 dígitos (tarjetas)
+    var supportsLastFourDigits: Bool {
+        self == .creditCard || self == .debitCard
+    }
 }
