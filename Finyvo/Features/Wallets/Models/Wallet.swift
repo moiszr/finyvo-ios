@@ -302,7 +302,7 @@ enum WalletType: String, CaseIterable, Codable, Identifiable, Sendable {
         case .savings:
             return "Cuenta de ahorros o fondo de emergencia"
         case .creditCard:
-            return "Tarjeta de crédito (el balance representa tu deuda)"
+            return "Tarjeta de crédito (el balance es lo que debes)"
         case .debitCard:
             return "Tarjeta de débito vinculada a tu banco"
         case .digitalWallet:

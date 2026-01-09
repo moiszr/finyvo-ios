@@ -3,7 +3,7 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/29/25.
-//  Updated on 01/04/26 - Ultimate Premium Polish v6.
+//  Updated on 01/05/26 - Elegant inline "Listo" button solution.
 //
 
 import SwiftUI
@@ -52,6 +52,10 @@ struct WalletCreationFlow: View {
     @State private var showDiscardAlert = false
     @State private var direction: Int = 1
     
+    // Estados de focus para Review (elevados para el botón Listo inline)
+    @State private var isReviewBalanceFocused: Bool = false
+    @State private var isReviewLastFourFocused: Bool = false
+    
     private let smoothTransition: Animation = .spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.2)
     
     init(viewModel: WalletsViewModel) {
@@ -74,6 +78,11 @@ struct WalletCreationFlow: View {
     private var canProceedFromName: Bool {
         let trimmed = editor.name.trimmingCharacters(in: .whitespaces)
         return trimmed.count >= 2 && trimmed.count <= AppConfig.Limits.maxWalletNameLength
+    }
+    
+    /// Si hay algún input numérico enfocado en Review
+    private var isReviewInputActive: Bool {
+        currentStep == .review && (isReviewBalanceFocused || isReviewLastFourFocused)
     }
     
     var body: some View {
@@ -132,13 +141,17 @@ struct WalletCreationFlow: View {
         .interactiveDismissDisabled(editor.hasChanges)
     }
     
+    // MARK: - Bottom Section (con botón Listo inline)
+    
     private var bottomSection: some View {
         VStack(spacing: 0) {
             Divider().opacity(0)
+
             actionButtons
                 .padding(.horizontal, FSpacing.lg)
-                .padding(.top, FSpacing.xl)
+                .padding(.top, FSpacing.lg)
                 .padding(.bottom, FSpacing.md)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isReviewInputActive)
         }
         .background(FColors.background.ignoresSafeArea(edges: .bottom))
     }
@@ -151,8 +164,23 @@ struct WalletCreationFlow: View {
         case .review:
             HStack(spacing: FSpacing.md) {
                 FlowBackButton(action: goToPreviousStep)
-                FlowContinueButton(title: "Crear Billetera", isEnabled: true, action: createWallet, icon: "checkmark", variant: .brand)
-            }
+
+                FlowContinueButton(
+                    title: "Crear Billetera",
+                    isEnabled: true,
+                    action: createWallet,
+                    icon: "checkmark"
+                    // ✅ sin variant: .brand (queda primary)
+                )
+
+                if isReviewInputActive {
+                    FlowKeyboardDismissButton {
+                        Constants.Haptic.light()
+                        dismissReviewInput()
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }.animation(.spring(response: 0.35, dampingFraction: 0.8), value: isReviewInputActive)
         default:
             HStack(spacing: FSpacing.md) {
                 FlowBackButton(action: goToPreviousStep)
@@ -173,9 +201,15 @@ struct WalletCreationFlow: View {
         case .currency:
             CurrencyStepView(editor: editor)
         case .review:
-            ReviewStepView(editor: editor)
+            ReviewStepView(
+                editor: editor,
+                isBalanceFocused: $isReviewBalanceFocused,
+                isLastFourFocused: $isReviewLastFourFocused
+            )
         }
     }
+    
+    // MARK: - Actions
     
     private func goToNextStep() {
         Constants.Haptic.light()
@@ -212,6 +246,12 @@ struct WalletCreationFlow: View {
     
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+    
+    private func dismissReviewInput() {
+        isReviewBalanceFocused = false
+        isReviewLastFourFocused = false
+        hideKeyboard()
     }
 }
 
@@ -296,138 +336,104 @@ private struct FlowBackButton: View {
     }
 }
 
+private struct FlowKeyboardDismissButton: View {
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "keyboard.chevron.compact.down")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(FColors.textPrimary)
+                .frame(width: 56, height: 56)
+                .background(
+                    Circle().fill(colorScheme == .dark
+                                  ? Color.white.opacity(0.1)
+                                  : Color.black.opacity(0.05))
+                )
+        }
+        .buttonStyle(FlowScaleButtonStyle())
+        .accessibilityLabel("Cerrar teclado")
+    }
+}
+
 // MARK: - STEP 1: NAME
 
 private struct NameStepView: View {
     @Binding var name: String
     let isValid: Bool
     let onContinue: () -> Void
-    
-    @FocusState private var isFocused: Bool
+
+    @State private var isFocused: Bool = false
     @Environment(\.colorScheme) private var colorScheme
-    
+
     private let maxLength = AppConfig.Limits.maxWalletNameLength
-    
-    private var isAtLimit: Bool {
-        name.count >= maxLength
-    }
-    
-    private var isNearLimit: Bool {
-        name.count > maxLength - 10
-    }
-    
+
     var body: some View {
         ZStack {
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { isFocused = false }
-            
+
             VStack(spacing: 0) {
                 Spacer()
-                
+
                 VStack(spacing: FSpacing.xxl) {
                     ZStack {
                         Circle()
                             .fill(FColors.brand.opacity(colorScheme == .dark ? 0.08 : 0.05))
                             .frame(width: 120, height: 120)
                             .blur(radius: 20)
-                        
+
                         Circle()
                             .fill(FColors.brand.opacity(colorScheme == .dark ? 0.15 : 0.1))
                             .frame(width: 100, height: 100)
-                        
+
                         Image(systemName: "wallet.bifold.fill")
                             .font(.system(size: 44))
                             .foregroundStyle(FColors.brand)
                             .symbolEffect(.bounce, value: isFocused)
                     }
-                    
+
                     VStack(spacing: FSpacing.sm) {
                         Text("¿Cómo se llama tu billetera?")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(FColors.textPrimary)
+
                         Text("Dale un nombre para identificarla")
                             .font(.subheadline)
                             .foregroundStyle(FColors.textSecondary)
                     }
                     .multilineTextAlignment(.center)
-                    
-                    // Input con límite estricto REAL
-                    LimitedTextField(
+
+                    FInput(
                         text: $name,
                         placeholder: "Ej: Banco Principal",
+                        submitLabel: .continue,
+                        textAlignment: .center,
+                        textFont: .title3.weight(.medium),
                         maxLength: maxLength,
-                        isFocused: $isFocused,
-                        onSubmit: { if isValid { onContinue() } }
+                        onSubmit: { if isValid { onContinue() } },
+                        externalFocus: $isFocused
                     )
+                    .withCharacterCount(nearLimit: 10)
                     .padding(.horizontal, FSpacing.lg)
-                    
-                    // Counter solo cuando está cerca del límite
-                    if isNearLimit {
-                        Text("\(name.count)/\(maxLength)")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(isAtLimit ? FColors.orange : FColors.textTertiary)
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
                 }
                 .padding(.horizontal, FSpacing.lg)
-                
+
                 Spacer()
                 Spacer()
             }
         }
-        .onAppear {
-            triggerFocus()
-        }
-        .onChange(of: isFocused) { old, new in
-            // Cuando pierde foco y vuelve a la vista, re-focusear
-        }
+        .onAppear { triggerFocus() }
     }
-    
+
     private func triggerFocus() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             isFocused = true
         }
     }
 }
-
-// MARK: - Limited TextField (Previene escritura más allá del límite)
-
-private struct LimitedTextField: View {
-    @Binding var text: String
-    let placeholder: String
-    let maxLength: Int
-    var isFocused: FocusState<Bool>.Binding
-    var onSubmit: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        TextField(placeholder, text: $text)
-            .font(.title3.weight(.medium))
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, FSpacing.lg)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(isFocused.wrappedValue ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
-            )
-            .focused(isFocused)
-            .submitLabel(.continue)
-            .onSubmit(onSubmit)
-            .onChange(of: text) { oldValue, newValue in
-                // Prevenir escritura más allá del límite
-                if newValue.count > maxLength {
-                    text = String(newValue.prefix(maxLength))
-                }
-            }
-    }
-}
-
 // MARK: - STEP 2: TYPE
 
 private struct TypeStepView: View {
@@ -498,8 +504,8 @@ private struct TypeOptionCard: View {
                         .foregroundStyle(FColors.textPrimary)
                     
                     Text(type.helpDescription)
-                        .font(.caption2)
-                        .foregroundStyle(FColors.textTertiary)
+                        .font(.caption)
+                        .foregroundStyle(FColors.textSecondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, FSpacing.sm)
@@ -595,6 +601,7 @@ private struct AdaptiveIconGrid: View {
     let onSelect: (FWalletIcon) -> Void
     
     @State private var calculatedHeight: CGFloat = 250
+    @State private var bounceByIcon: [FWalletIcon: Int] = [:]
     private let columns = 6
     private let spacing: CGFloat = 12
     
@@ -611,8 +618,15 @@ private struct AdaptiveIconGrid: View {
                 spacing: spacing
             ) {
                 ForEach(icons, id: \.rawValue) { icon in
-                    IconOptionButton(icon: icon, color: selectedColor, isSelected: selectedIcon == icon, size: itemSize) {
+                    IconOptionButton(
+                        icon: icon,
+                        color: selectedColor,
+                        isSelected: selectedIcon == icon,
+                        size: itemSize,
+                        bounceToken: bounceByIcon[icon, default: 0]
+                    ) {
                         onSelect(icon)
+                        bounceByIcon[icon, default: 0] += 1
                     }
                 }
             }
@@ -658,31 +672,29 @@ private struct IconOptionButton: View {
     let color: FCardColor
     let isSelected: Bool
     let size: CGFloat
+    let bounceToken: Int
     let onTap: () -> Void
+
     @Environment(\.colorScheme) private var colorScheme
-    
+
+    private var cardFill: Color { colorScheme == .dark ? FColors.backgroundSecondary : .white }
+    private var cardStroke: Color { colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04) }
+    private var selectedFill: Color { color.color.opacity(colorScheme == .dark ? 0.22 : 0.14) }
+
     var body: some View {
         Button(action: onTap) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected
-                        ? color.color.opacity(colorScheme == .dark ? 0.22 : 0.14)
-                        : (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)))
-                
-                if !isSelected {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05), lineWidth: 1)
-                }
-                
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(color.color, lineWidth: 2)
-                }
-                
+                    .fill(isSelected ? selectedFill : cardFill)
+
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? color.color : cardStroke, lineWidth: isSelected ? 2 : 1)
+
                 Image(systemName: icon.systemName)
                     .font(.system(size: 19, weight: isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? color.color : FColors.textSecondary)
-                    .symbolEffect(.bounce, value: isSelected)
+                    // ✅ ahora SOLO se anima el que recibe un token nuevo
+                    .symbolEffect(.bounce, value: bounceToken)
             }
             .frame(width: size, height: size)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
@@ -691,7 +703,7 @@ private struct IconOptionButton: View {
     }
 }
 
-// MARK: - STEP 4: CURRENCY (Headers con ancho completo)
+// MARK: - STEP 4: CURRENCY
 
 private struct CurrencyStepView: View {
     @Bindable var editor: WalletEditorViewModel
@@ -737,7 +749,6 @@ private struct CurrencyStepView: View {
     }
 }
 
-// Header con ancho completo para cubrir contenido al hacer scroll
 private struct CurrencyStickyHeader: View {
     let title: String
     @Environment(\.colorScheme) private var colorScheme
@@ -753,11 +764,10 @@ private struct CurrencyStickyHeader: View {
         }
         .padding(.vertical, FSpacing.sm)
         .padding(.horizontal, 4)
-        // Fondo extendido para cubrir el contenido que pasa por debajo
         .frame(maxWidth: .infinity)
         .background(
             FColors.background
-                .padding(.horizontal, -FSpacing.lg) // Extiende más allá del padding del padre
+                .padding(.horizontal, -FSpacing.lg)
         )
     }
 }
@@ -810,7 +820,7 @@ private struct CurrencyRow: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(isSelected ? FColors.brand : Color.clear, lineWidth: 1.4)
+                    .stroke(isSelected ? FColors.brand : Color.clear, lineWidth: 1.2)
             )
             .shadow(color: isSelected ? FColors.brand.opacity(0.15) : Color.black.opacity(colorScheme == .dark ? 0 : 0.04), radius: isSelected ? 8 : 6, y: 3)
             .scaleEffect(isSelected ? 1.01 : 1.0)
@@ -819,7 +829,6 @@ private struct CurrencyRow: View {
         .buttonStyle(FlowScaleButtonStyle())
     }
 }
-
 // MARK: - Review Field Enum
 
 private enum ReviewField: Hashable {
@@ -832,11 +841,13 @@ private enum ReviewField: Hashable {
 private struct ReviewStepView: View {
     @Bindable var editor: WalletEditorViewModel
     
+    @Binding var isBalanceFocused: Bool
+    @Binding var isLastFourFocused: Bool
+    
     @Environment(\.colorScheme) private var colorScheme
     
     @State private var expandedCard: ReviewField? = nil
     @State private var showReminderPicker = false
-    @State private var isKeyboardVisible = false
     
     private var livePreviewWallet: Wallet {
         let balance = editor.initialBalance
@@ -881,7 +892,7 @@ private struct ReviewStepView: View {
                             ) {
                                 BalanceInputContent(
                                     editor: editor,
-                                    onDone: { dismissAndScrollToTop(proxy: proxy) }
+                                    isFocused: $isBalanceFocused
                                 )
                                 .id(ReviewField.balance)
                             }
@@ -909,17 +920,16 @@ private struct ReviewStepView: View {
                                 ) {
                                     LastFourInputContent(
                                         editor: editor,
-                                        onDone: { dismissAndScrollToTop(proxy: proxy) }
+                                        isFocused: $isLastFourFocused
                                     )
                                     .id(ReviewField.lastFour)
                                 }
                             }
                             
-                            // Payment Reminder - Sin redundancia
+                            // Payment Reminder
                             if editor.type.supportsPaymentReminder {
                                 ReviewCard {
                                     HStack {
-                                        // Solo mostrar el día en el subtítulo, no en el pill
                                         ReviewIconLabel(
                                             icon: "bell.fill",
                                             color: FColors.orange,
@@ -930,7 +940,6 @@ private struct ReviewStepView: View {
                                         )
                                         Spacer()
                                         
-                                        // Solo mostrar el botón de editar si está habilitado
                                         if editor.paymentReminderEnabled {
                                             Button {
                                                 Constants.Haptic.light()
@@ -963,6 +972,17 @@ private struct ReviewStepView: View {
                 .presentationDetents([.height(320)])
                 .presentationDragIndicator(.visible)
         }
+        // Cuando el focus cambia externamente (botón Listo inline), colapsar el card
+        .onChange(of: isBalanceFocused) { _, newValue in
+            if !newValue && expandedCard == .balance {
+                saveAndCollapseBalance()
+            }
+        }
+        .onChange(of: isLastFourFocused) { _, newValue in
+            if !newValue && expandedCard == .lastFour {
+                saveAndCollapseLastFour()
+            }
+        }
     }
     
     private var balanceSubtitle: String {
@@ -983,11 +1003,27 @@ private struct ReviewStepView: View {
         Constants.Haptic.light()
         
         if expandedCard == card {
-            dismissAndScrollToTop(proxy: proxy)
+            // Colapsar
+            if card == .balance {
+                editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
+            } else if card == .lastFour {
+                editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
+            }
+            
+            isBalanceFocused = false
+            isLastFourFocused = false
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                expandedCard = nil
+            }
             return
         }
         
+        // Si hay otro card expandido, cerrar primero
         if expandedCard != nil {
+            isBalanceFocused = false
+            isLastFourFocused = false
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
         
@@ -995,33 +1031,10 @@ private struct ReviewStepView: View {
             expandedCard = card
         }
         
-        // Scroll suave al card expandido
+        // Scroll y focus después de la animación
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 proxy.scrollTo(card, anchor: .center)
-            }
-        }
-    }
-    
-    private func dismissAndScrollToTop(proxy: ScrollViewProxy) {
-        // Guardar estados
-        if expandedCard == .balance {
-            editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
-        }
-        if expandedCard == .lastFour {
-            editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
-        }
-        
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            expandedCard = nil
-        }
-        
-        // Scroll suave hacia arriba para mostrar la vista completa
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
-                proxy.scrollTo("preview", anchor: .top)
             }
         }
     }
@@ -1034,11 +1047,28 @@ private struct ReviewStepView: View {
             editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
         }
         
+        isBalanceFocused = false
+        isLastFourFocused = false
+        
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             expandedCard = nil
         }
         
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+    
+    private func saveAndCollapseBalance() {
+        editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            expandedCard = nil
+        }
+    }
+    
+    private func saveAndCollapseLastFour() {
+        editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            expandedCard = nil
+        }
     }
 }
 
@@ -1071,7 +1101,7 @@ private struct DayPickerSheet: View {
                         dismiss()
                     }
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(FColors.brand)
+                    .foregroundStyle(FColors.textPrimary)
                 }
             }
         }
@@ -1129,61 +1159,48 @@ private struct ReviewExpandableCard<Content: View>: View {
     }
 }
 
-// MARK: - Input con límite estricto y toolbar propio
+// MARK: - Input Contents (sin toolbar - el botón Listo está en bottomSection)
 
 private struct BalanceInputContent: View {
     @Bindable var editor: WalletEditorViewModel
-    let onDone: () -> Void
-    
-    @FocusState private var isFocused: Bool
+    @Binding var isFocused: Bool
+
     @Environment(\.colorScheme) private var colorScheme
-    
     private let maxLength = 15
-    
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(editor.selectedCurrency?.symbol ?? "$")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(FColors.textSecondary)
-                
-                TextField("0.00", text: $editor.initialBalanceString)
-                    .font(.body)
-                    .keyboardType(.decimalPad)
-                    .focused($isFocused)
-                    .onChange(of: editor.initialBalanceString) { oldValue, newValue in
-                        // Límite estricto - prevenir escritura
-                        if newValue.count > maxLength {
-                            editor.initialBalanceString = String(newValue.prefix(maxLength))
-                            return
-                        }
-                        editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
-                    }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+        HStack(spacing: 8) {
+            Text(editor.selectedCurrency?.symbol ?? "$")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(FColors.textSecondary)
+
+            FInput(
+                text: $editor.initialBalanceString,
+                placeholder: "0.00",
+                keyboardType: .decimalPad,
+                autocapitalization: .never,
+                autocorrection: false,
+                submitLabel: .done,
+                textFont: .body,
+                maxLength: maxLength,
+                showDoneButton: false,
+                externalFocus: $isFocused,
+                style: .bare
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(isFocused ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
-            )
-            
-            // Botón Listo inline - siempre visible cuando está expandido
-            Button {
-                isFocused = false
-                onDone()
-            } label: {
-                Text("Listo")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FColors.brand)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            .onChange(of: editor.initialBalanceString) { _, _ in
+                editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
             }
-            .padding(.top, FSpacing.sm)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(isFocused ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        )
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 isFocused = true
@@ -1194,60 +1211,39 @@ private struct BalanceInputContent: View {
 
 private struct LastFourInputContent: View {
     @Bindable var editor: WalletEditorViewModel
-    let onDone: () -> Void
-    
-    @FocusState private var isFocused: Bool
+    @Binding var isFocused: Bool
+
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
-        VStack(spacing: 0) {
-            TextField("0000", text: $editor.lastFourDigits)
-                .font(.title3.weight(.medium).monospaced())
-                .multilineTextAlignment(.center)
-                .keyboardType(.numberPad)
-                .focused($isFocused)
-                .onChange(of: editor.lastFourDigits) { oldValue, newValue in
-                    // Solo números
-                    let filtered = newValue.filter { $0.isNumber }
-                    
-                    // Límite estricto de 4 - prevenir escritura
-                    if filtered.count > 4 {
-                        editor.lastFourDigits = String(filtered.prefix(4))
-                        return
-                    }
-                    
-                    // Aplicar filtro si había caracteres no numéricos
-                    if filtered != newValue {
-                        editor.lastFourDigits = filtered
-                        return
-                    }
-                    
-                    editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(isFocused ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
-                )
-            
-            // Botón Listo inline
-            Button {
-                isFocused = false
-                onDone()
-            } label: {
-                Text("Listo")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FColors.brand)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-            }
-            .padding(.top, FSpacing.sm)
+        FInput(
+            text: $editor.lastFourDigits,
+            placeholder: "0000",
+            keyboardType: .numberPad,
+            autocapitalization: .never,
+            autocorrection: false,
+            submitLabel: .done,
+            textAlignment: .center,
+            textFont: .title3.weight(.medium).monospaced(),
+            maxLength: 4,
+            inputFilter: { $0.filter(\.isNumber) },
+            showDoneButton: false,
+            externalFocus: $isFocused,
+            style: .bare
+        )
+        .onChange(of: editor.lastFourDigits) { _, _ in
+            editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(isFocused ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        )
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 isFocused = true

@@ -32,6 +32,7 @@ struct WalletCardView: View {
     private let cardAspectRatio: CGFloat = 1.586 // Proporción tarjeta de crédito estándar
     private let cornerRadius: CGFloat = 20
     private let expandedCornerRadius: CGFloat = 28
+    private let liveTextAnimation: Animation = .spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.15)
     
     // MARK: - Body
     
@@ -161,6 +162,11 @@ struct WalletCardView: View {
                     .foregroundStyle(contentColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .transaction { tx in
+                        tx.animation = liveTextAnimation
+                    }
             }
             
             Spacer()
@@ -169,9 +175,20 @@ struct WalletCardView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 2) {
                     if let lastFour = wallet.lastFourDigits, !lastFour.isEmpty {
-                        Text("•••• \(lastFour)")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(contentColor.opacity(0.6))
+                        HStack(spacing: 4) {
+                            Text("••••")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(contentColor.opacity(0.6))
+
+                            Text(lastFour)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(contentColor.opacity(0.6))
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                                .transaction { tx in
+                                    tx.animation = liveTextAnimation
+                                }
+                        }
                     }
                     
                     Text(wallet.name)
