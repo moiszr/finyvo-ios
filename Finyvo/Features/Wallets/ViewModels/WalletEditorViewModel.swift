@@ -5,11 +5,12 @@
 //  Created by Moises Núñez on 12/24/25.
 //  ViewModel para el formulario de crear/editar billetera.
 //
-//  v2.2 - Production Fixes:
+//  v2.3 - Production Optimizations:
 //  - hasChanges mejorado para modo create (detecta TODOS los cambios)
 //  - Limpieza de lastFourDigits al cambiar tipo que no soporta tarjeta
 //  - trim whitespacesAndNewlines para mejor sanitización
 //  - Sanitización decimal alineada a moneda
+//  - Haptics delegados a la View layer
 //
 
 import SwiftUI
@@ -52,7 +53,7 @@ final class WalletEditorViewModel {
                 paymentReminderDay = 15
             }
             
-            // ✅ FIX: Limpiar lastFourDigits si el tipo no soporta tarjeta
+            // Limpiar lastFourDigits si el tipo no soporta tarjeta
             if !type.supportsLastFourDigits {
                 lastFourDigits = ""
                 lastFourEnabled = false
@@ -137,7 +138,7 @@ final class WalletEditorViewModel {
         return trimmed.count >= 2 && trimmed.count <= AppConfig.Limits.maxWalletNameLength
     }
     
-    /// ✅ FIX: Detecta si hay cambios sin guardar (incluye TODOS los campos en modo create)
+    /// Detecta si hay cambios sin guardar (incluye TODOS los campos en modo create)
     var hasChanges: Bool {
         guard let original = mode.wallet else {
             // En modo crear: detectar CUALQUIER cambio desde valores iniciales
@@ -251,7 +252,7 @@ final class WalletEditorViewModel {
         return String(format: "%.2f", value)
     }
     
-    /// ✅ Mejorado: considera los decimales de la moneda actual
+    /// Sanitiza input decimal considerando los decimales de la moneda actual
     private func sanitizeDecimalInput(_ input: String) -> String {
         var result = ""
         var hasDecimalSeparator = false
@@ -280,6 +281,7 @@ final class WalletEditorViewModel {
     }
     
     // MARK: - Actions
+    // Note: Haptics are handled by the View layer for better separation of concerns
     
     func selectIcon(_ newIcon: FWalletIcon) {
         icon = newIcon
@@ -315,7 +317,7 @@ final class WalletEditorViewModel {
         wallet.initialBalance = balanceEnabled ? initialBalance : 0
         wallet.isDefault = isDefault
         
-        // ✅ FIX: Solo guardar lastFour si el tipo lo soporta Y está habilitado
+        // Solo guardar lastFour si el tipo lo soporta Y está habilitado
         if type.supportsLastFourDigits && lastFourEnabled && !lastFourDigits.isEmpty {
             wallet.lastFourDigits = lastFourDigits
         } else {
@@ -332,7 +334,7 @@ final class WalletEditorViewModel {
     func buildNewWalletData() -> NewWalletData? {
         guard isValid else { return nil }
         
-        // ✅ FIX: Solo incluir lastFour si el tipo lo soporta
+        // Solo incluir lastFour si el tipo lo soporta
         let finalLastFour: String?
         if type.supportsLastFourDigits && lastFourEnabled && !lastFourDigits.isEmpty {
             finalLastFour = lastFourDigits

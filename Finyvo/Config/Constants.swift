@@ -3,6 +3,7 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/24/25.
+//  Updated on 01/09/26 - Centralized timing constants
 //  Constantes globales de la aplicación.
 //
 
@@ -52,6 +53,12 @@ enum Constants {
         /// Spring suave para transiciones grandes
         static let smoothSpring = SwiftUI.Animation.spring(response: 0.5, dampingFraction: 0.85)
         
+        /// Spring para cards expandibles
+        static let cardSpring = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.8)
+        
+        /// Spring para selección de items
+        static let selectionSpring = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.7)
+        
         /// Ease out para entradas
         static let easeOut = SwiftUI.Animation.easeOut(duration: 0.25)
         
@@ -60,6 +67,53 @@ enum Constants {
         
         /// Para charts y gráficos
         static let chartSpring = SwiftUI.Animation.spring(response: 0.6, dampingFraction: 0.75)
+        
+        /// Para transiciones de pasos en flujos
+        static let stepTransition = SwiftUI.Animation.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.2)
+        
+        /// Para botones y controles interactivos
+        static let buttonSpring = SwiftUI.Animation.spring(response: 0.35, dampingFraction: 0.8)
+        
+        /// Para contenido numérico que cambia (balances, contadores)
+        static let numericTransition = SwiftUI.Animation.spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.15)
+    }
+    
+    // MARK: - Timing (for Task.sleep delays)
+    
+    enum Timing {
+        /// Delay para auto-focus en inputs después de transición
+        static let focusDelay: Duration = .milliseconds(150)
+        
+        /// Delay para focus en inputs con keyboard (más largo para sheet/modal)
+        static let keyboardFocusDelay: Duration = .milliseconds(300)
+        
+        /// Delay para scroll después de expandir contenido
+        static let scrollDelay: Duration = .milliseconds(150)
+        
+        /// Delay para scroll cuando se expande un card (más largo para esperar animación)
+        static let expandedCardScrollDelay: Duration = .milliseconds(250)
+        
+        /// Delay para el segundo scroll (nudge) que compensa el teclado
+        static let scrollNudgeDelay: Duration = .milliseconds(90)
+        
+        /// Delay para limpiar estado después de animación de dismiss
+        static let dismissCleanupDelay: Double = 0.4
+        
+        /// Delay mínimo para mostrar loading states (evita flash)
+        static let minLoadingDisplay: Duration = .milliseconds(300)
+        
+        /// Debounce para búsqueda en tiempo real
+        static let searchDebounce: Duration = .milliseconds(300)
+        
+        /// Debounce para validación de inputs
+        static let inputValidationDebounce: Duration = .milliseconds(200)
+    }
+    
+    // MARK: - Layout
+    
+    enum Layout {
+        /// Padding extra en safe area cuando el teclado está activo
+        static let keyboardSafeAreaPadding: CGFloat = 12
     }
     
     // MARK: - Haptics

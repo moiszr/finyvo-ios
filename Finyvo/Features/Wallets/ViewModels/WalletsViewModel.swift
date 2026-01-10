@@ -5,11 +5,12 @@
 //  Created by Moises Núñez on 12/24/25.
 //  ViewModel principal para la gestión de billeteras.
 //
-//  v2.2 - Production Fixes:
+//  v2.3 - Production Optimizations:
 //  - @MainActor isolation para SwiftData concurrency safety
 //  - clearDefaultWallet actualiza updatedAt
 //  - Resultado de operaciones para manejo de errores
 //  - Invariante "exactamente 1 default" reforzada
+//  - Haptics delegados a la View layer (no en ViewModel)
 //
 
 import SwiftUI
@@ -153,12 +154,18 @@ final class WalletsViewModel {
     /// Configura el ModelContext. Llamar desde `onAppear` de la vista.
     func configure(with context: ModelContext) {
         guard modelContext == nil else { return }
-        
         modelContext = context
         loadWallets()
         
-        // Normalizar: asegurar exactamente 1 default si hay wallets
-        normalizeDefaultWallet()
+        // Solo normalizar si hay problema (lazy)
+        if needsNormalization {
+            normalizeDefaultWallet()
+        }
+    }
+
+    private var needsNormalization: Bool {
+        let defaults = wallets.filter { $0.isDefault }
+        return !wallets.isEmpty && defaults.count != 1
     }
     
     // MARK: - Data Loading
@@ -245,6 +252,7 @@ final class WalletsViewModel {
     
     /// Crea una nueva billetera.
     /// - Returns: Resultado de la operación para manejo en UI
+    /// - Note: Haptics son responsabilidad de la View que llama este método
     @discardableResult
     func createWallet(
         name: String,
@@ -266,7 +274,6 @@ final class WalletsViewModel {
         // Validar límite
         guard !isLimitReached else {
             error = .limitReached
-            Constants.Haptic.error()
             return .limitReached
         }
         
@@ -293,8 +300,8 @@ final class WalletsViewModel {
         
         do {
             try context.save()
-            loadWallets()
-            Constants.Haptic.success()
+            wallets.append(wallet)
+            wallets.sort { $0.sortOrder < $1.sortOrder }
             
             if AppConfig.isDebugMode {
                 print("✅ WalletsViewModel: Wallet '\(name)' creada")
@@ -303,7 +310,6 @@ final class WalletsViewModel {
             return .success(walletID: wallet.id)
         } catch {
             self.error = .saveFailed
-            Constants.Haptic.error()
             print("❌ WalletsViewModel: Error al guardar - \(error)")
             return .saveFailed
         }
@@ -316,7 +322,6 @@ final class WalletsViewModel {
         
         if save() {
             loadWallets()
-            Constants.Haptic.light()
             return true
         }
         return false
@@ -331,7 +336,6 @@ final class WalletsViewModel {
         
         if save() {
             loadWallets()
-            Constants.Haptic.success()
             return true
         }
         return false
@@ -356,7 +360,6 @@ final class WalletsViewModel {
         
         if save() {
             loadWallets()
-            Constants.Haptic.success()
             
             if AppConfig.isDebugMode {
                 print("✅ WalletsViewModel: Balance ajustado de \(wallet.name): \(difference >= 0 ? "+" : "")\(difference)")
@@ -371,7 +374,6 @@ final class WalletsViewModel {
     func archiveWallet(_ wallet: Wallet) -> Bool {
         guard !wallet.isDefault else {
             error = .cannotArchiveDefault
-            Constants.Haptic.error()
             return false
         }
         
@@ -380,7 +382,6 @@ final class WalletsViewModel {
         
         if save() {
             loadWallets()
-            Constants.Haptic.success()
             return true
         }
         return false
@@ -394,7 +395,6 @@ final class WalletsViewModel {
         
         if save() {
             loadWallets()
-            Constants.Haptic.success()
             return true
         }
         return false
@@ -420,7 +420,6 @@ final class WalletsViewModel {
                 normalizeDefaultWallet()
             }
             
-            Constants.Haptic.success()
             return true
         }
         return false
@@ -439,7 +438,6 @@ final class WalletsViewModel {
         
         _ = save()
         loadWallets()
-        Constants.Haptic.light()
     }
     
     // MARK: - Navigation Actions
@@ -448,7 +446,6 @@ final class WalletsViewModel {
     func presentCreate() {
         guard !isLimitReached else {
             error = .limitReached
-            Constants.Haptic.error()
             return
         }
         
@@ -481,9 +478,10 @@ final class WalletsViewModel {
         }
         
         // Limpiar selección después de la animación
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.selectedWallet = nil
-            self?.selectedWalletID = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(Constants.Timing.dismissCleanupDelay))
+            selectedWallet = nil
+            selectedWalletID = nil
         }
     }
     

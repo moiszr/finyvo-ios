@@ -3,10 +3,12 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/29/25.
-//  Updated on 01/08/26 - Production fixes:
-//    - Dismiss dependiente del éxito real de creación
-//    - Focus/teclado robusto con cancelación de tasks
-//    - Mejor manejo de identidad para transiciones
+//  Updated on 01/09/26 - Production optimizations:
+//    - Centralized timing constants
+//    - Removed DispatchQueue in favor of pure Task
+//    - Haptic feedback after confirmed success
+//    - Robust task cancellation (focusTask + scrollTask)
+//    - Unified hideKeyboard via View extension
 //
 
 import SwiftUI
@@ -58,13 +60,8 @@ struct WalletCreationFlow: View {
     @State private var isReviewBalanceFocused: Bool = false
     @State private var isReviewLastFourFocused: Bool = false
     
-    // ✅ FIX: Task handles para cancelación de focus delays
     @State private var focusTask: Task<Void, Never>?
-    
-    // ✅ FIX: Estado de guardado para mostrar feedback
     @State private var isSaving: Bool = false
-    
-    private let smoothTransition: Animation = .spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.2)
     
     init(viewModel: WalletsViewModel) {
         self.viewModel = viewModel
@@ -168,7 +165,7 @@ struct WalletCreationFlow: View {
                 .padding(.horizontal, FSpacing.lg)
                 .padding(.top, FSpacing.lg)
                 .padding(.bottom, FSpacing.md)
-                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isReviewInputActive)
+                .animation(Constants.Animation.buttonSpring, value: isReviewInputActive)
         }
         .background(FColors.background.ignoresSafeArea(edges: .bottom))
     }
@@ -195,7 +192,8 @@ struct WalletCreationFlow: View {
                     }
                     .transition(.scale.combined(with: .opacity))
                 }
-            }.animation(.spring(response: 0.35, dampingFraction: 0.8), value: isReviewInputActive)
+            }
+            .animation(Constants.Animation.buttonSpring, value: isReviewInputActive)
         default:
             HStack(spacing: FSpacing.md) {
                 FlowBackButton(action: goToPreviousStep)
@@ -216,7 +214,7 @@ struct WalletCreationFlow: View {
         case .currency:
             CurrencyStepView(editor: editor)
         case .review:
-            ReviewStepView(editor: editor, isBalanceFocused: $isReviewBalanceFocused, isLastFourFocused: $isReviewLastFourFocused, focusTask: $focusTask)
+            ReviewStepView(editor: editor, isBalanceFocused: $isReviewBalanceFocused, isLastFourFocused: $isReviewLastFourFocused)
         }
     }
     
@@ -229,7 +227,7 @@ struct WalletCreationFlow: View {
         hideKeyboard()
         guard let next = currentStep.next() else { return }
         direction = 1
-        withAnimation(smoothTransition) { currentStep = next }
+        withAnimation(Constants.Animation.stepTransition) { currentStep = next }
     }
     
     private func goToPreviousStep() {
@@ -239,7 +237,7 @@ struct WalletCreationFlow: View {
         hideKeyboard()
         guard let previous = currentStep.previous() else { return }
         direction = -1
-        withAnimation(smoothTransition) { currentStep = previous }
+        withAnimation(Constants.Animation.stepTransition) { currentStep = previous }
     }
     
     private func handleClose() {
@@ -252,26 +250,29 @@ struct WalletCreationFlow: View {
     private func createWallet() {
         guard let data = editor.buildNewWalletData() else {
             Constants.Haptic.error()
-            return }
+            return
+        }
         
         isSaving = true
         
-        let result = viewModel.createWallet(
-            name: data.name, type: data.type, icon: data.icon, color: data.color,
-            currencyCode: data.currencyCode, initialBalance: data.initialBalance,
-            isDefault: data.isDefault, paymentReminderDay: data.paymentReminderDay,
-            notes: data.notes, lastFourDigits: data.lastFourDigits
-        )
-        
-        isSaving = false
-        
-        switch result {
-        case .success:
-            Constants.Haptic.success()
-            dismiss()
-        case .limitReached, .saveFailed, .contextNotConfigured:
-            Constants.Haptic.error()
-            showErrorAlert = true
+        Task { @MainActor in
+            let result = viewModel.createWallet(
+                name: data.name, type: data.type, icon: data.icon, color: data.color,
+                currencyCode: data.currencyCode, initialBalance: data.initialBalance,
+                isDefault: data.isDefault, paymentReminderDay: data.paymentReminderDay,
+                notes: data.notes, lastFourDigits: data.lastFourDigits
+            )
+            
+            isSaving = false
+            
+            switch result {
+            case .success(_):
+                Constants.Haptic.success()
+                dismiss()
+            case .limitReached, .saveFailed, .contextNotConfigured:
+                Constants.Haptic.error()
+                showErrorAlert = true
+            }
         }
     }
     
@@ -299,7 +300,7 @@ private struct MonochromaticProgressIndicator: View {
                 Capsule()
                     .fill(indicatorColor(isActive: index <= currentStep))
                     .frame(width: index == currentStep ? 32 : 6, height: 6)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: currentStep)
+                    .animation(Constants.Animation.cardSpring, value: currentStep)
             }
         }
         .frame(height: 10)
@@ -455,7 +456,7 @@ private struct NameStepView: View {
     private func triggerFocus() {
         focusTask?.cancel()
         focusTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: Constants.Timing.focusDelay)
             guard !Task.isCancelled else { return }
             isFocused = true
         }
@@ -493,7 +494,7 @@ private struct TypeStepView: View {
                         ForEach(displayTypes) { type in
                             TypeOptionCard(type: type, isSelected: selectedType == type) {
                                 onSelect(type)
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                withAnimation(Constants.Animation.cardSpring) {
                                     proxy.scrollTo(type.id, anchor: .center)
                                 }
                             }
@@ -553,7 +554,7 @@ private struct TypeOptionCard: View {
             )
             .shadow(color: isSelected ? type.defaultColor.color.opacity(0.2) : .black.opacity(0.03), radius: isSelected ? 12 : 8, y: 4)
             .scaleEffect(isSelected ? 1.02 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+            .animation(Constants.Animation.selectionSpring, value: isSelected)
         }
         .buttonStyle(FlowScaleButtonStyle())
     }
@@ -688,7 +689,7 @@ private struct ColorOptionButton: View {
             .frame(width: 44, height: 44)
             .background(Circle().stroke(isSelected ? color.color : Color.clear, lineWidth: 2))
             .scaleEffect(isSelected ? 1.15 : 1.0)
-            .animation(.spring(response: 0.35, dampingFraction: 0.65), value: isSelected)
+            .animation(Constants.Animation.selectionSpring, value: isSelected)
         }
         .buttonStyle(.plain)
     }
@@ -721,11 +722,12 @@ private struct IconOptionButton: View {
                     .symbolEffect(.bounce, value: bounceToken)
             }
             .frame(width: size, height: size)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
+            .animation(Constants.Animation.selectionSpring, value: isSelected)
         }
         .buttonStyle(FlowScaleButtonStyle())
     }
 }
+
 // MARK: - STEP 4: CURRENCY
 
 private struct CurrencyStepView: View {
@@ -844,7 +846,7 @@ private struct CurrencyRow: View {
             )
             .shadow(color: isSelected ? FColors.brand.opacity(0.15) : Color.black.opacity(colorScheme == .dark ? 0 : 0.04), radius: isSelected ? 8 : 6, y: 3)
             .scaleEffect(isSelected ? 1.01 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+            .animation(Constants.Animation.selectionSpring, value: isSelected)
         }
         .buttonStyle(FlowScaleButtonStyle())
     }
@@ -864,12 +866,19 @@ private struct ReviewStepView: View {
     
     @Binding var isBalanceFocused: Bool
     @Binding var isLastFourFocused: Bool
-    @Binding var focusTask: Task<Void, Never>?
+    
+    @State private var balanceFocusToken: Int = 0
+    @State private var lastFourFocusToken: Int = 0
+    
+    // Tasks separados por campo para evitar race conditions
+    @State private var balanceFocusTask: Task<Void, Never>?
+    @State private var lastFourFocusTask: Task<Void, Never>?
     
     @Environment(\.colorScheme) private var colorScheme
     
     @State private var expandedCard: ReviewField? = nil
     @State private var showReminderPicker = false
+    @State private var scrollTask: Task<Void, Never>?
     
     private var livePreviewWallet: Wallet {
         let balance = editor.initialBalance
@@ -887,98 +896,161 @@ private struct ReviewStepView: View {
         )
     }
     
+    /// Helper para generar ID único del scroll target
+    private func scrollTargetID(for card: ReviewField) -> String {
+        "scrollTarget-\(card)"
+    }
+    
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func cancelAllFocusTasks() {
+        balanceFocusTask?.cancel()
+        balanceFocusTask = nil
+        lastFourFocusTask?.cancel()
+        lastFourFocusTask = nil
+    }
+
+    private func cancelScrollTask() {
+        scrollTask?.cancel()
+        scrollTask = nil
+    }
+    
     var body: some View {
         ZStack {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { dismissKeyboardAndCollapse() }
-            
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: FSpacing.xl) {
-                        WalletCardView(wallet: livePreviewWallet)
-                            .shadow(color: editor.color.color.opacity(0.25), radius: 15, y: 12)
-                            .padding(.horizontal, FSpacing.lg)
-                            .padding(.top, FSpacing.xl)
-                            .id("preview")
-                        
-                        VStack(spacing: FSpacing.md) {
-                            // Balance
-                            ReviewExpandableCard(
-                                icon: "banknote.fill",
-                                iconColor: FColors.green,
-                                title: "Balance inicial",
-                                subtitle: balanceSubtitle,
-                                isExpanded: expandedCard == .balance,
-                                onToggle: { toggleCard(.balance, proxy: proxy) }
-                            ) {
-                                BalanceInputContent(editor: editor, isFocused: $isBalanceFocused, focusTask: $focusTask)
-                                    .id(ReviewField.balance)
-                            }
-                            
-                            // Default
-                            ReviewCard {
-                                HStack {
-                                    ReviewIconLabel(icon: "star.fill", color: FColors.yellow, title: "Billetera principal", subtitle: "Usar por defecto")
-                                    Spacer()
-                                    Toggle("", isOn: $editor.isDefault)
-                                        .labelsHidden()
-                                        .tint(FColors.brand)
-                                }
-                            }
-                            
-                            // Last 4 - ✅ FIX: Solo mostrar si el tipo soporta lastFour
-                            if editor.type.supportsLastFourDigits {
+                ZStack {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { dismissKeyboardAndCollapse(proxy: proxy) }
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: FSpacing.xl) {
+                            WalletCardView(wallet: livePreviewWallet)
+                                .shadow(color: editor.color.color.opacity(0.25), radius: 15, y: 12)
+                                .padding(.horizontal, FSpacing.lg)
+                                .padding(.top, FSpacing.xl)
+                                .id("preview")
+
+                            VStack(spacing: FSpacing.md) {
+                                // Balance
                                 ReviewExpandableCard(
-                                    icon: "number",
-                                    iconColor: FColors.blue,
-                                    title: "Últimos 4 dígitos",
-                                    subtitle: lastFourSubtitle,
-                                    isExpanded: expandedCard == .lastFour,
-                                    onToggle: { toggleCard(.lastFour, proxy: proxy) }
+                                    icon: "banknote.fill",
+                                    iconColor: FColors.green,
+                                    title: "Balance inicial",
+                                    subtitle: balanceSubtitle,
+                                    isExpanded: expandedCard == .balance,
+                                    onToggle: { toggleCard(.balance, proxy: proxy) }
                                 ) {
-                                    LastFourInputContent(editor: editor, isFocused: $isLastFourFocused, focusTask: $focusTask)
-                                        .id(ReviewField.lastFour)
+                                    VStack(spacing: 0) {
+                                        BalanceInputContent(
+                                            editor: editor,
+                                            isFocused: $isBalanceFocused,
+                                            focusTask: $balanceFocusTask,
+                                            refocusToken: balanceFocusToken
+                                        )
+
+                                        Color.clear
+                                            .frame(height: 1)
+                                            .id(scrollTargetID(for: .balance))
+                                    }
                                 }
-                            }
-                            
-                            // Payment Reminder
-                            if editor.type.supportsPaymentReminder {
+
+                                // Default
                                 ReviewCard {
                                     HStack {
                                         ReviewIconLabel(
-                                            icon: "bell.fill",
-                                            color: FColors.orange,
-                                            title: "Recordatorio pago",
-                                            subtitle: editor.paymentReminderEnabled ? "Día \(editor.paymentReminderDay) del mes" : "Desactivado"
+                                            icon: "star.fill",
+                                            color: FColors.yellow,
+                                            title: "Billetera principal",
+                                            subtitle: "Usar por defecto"
                                         )
                                         Spacer()
-                                        
-                                        if editor.paymentReminderEnabled {
-                                            Button {
-                                                Constants.Haptic.light()
-                                                showReminderPicker = true
-                                            } label: {
-                                                Image(systemName: "pencil")
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundStyle(FColors.brand)
-                                                    .frame(width: 32, height: 32)
-                                                    .background(Circle().fill(FColors.brand.opacity(0.12)))
-                                            }
-                                        }
-                                        
-                                        Toggle("", isOn: $editor.paymentReminderEnabled)
+                                        Toggle("", isOn: $editor.isDefault)
                                             .labelsHidden()
                                             .tint(FColors.brand)
                                     }
                                 }
+
+                                // Last 4
+                                if editor.type.supportsLastFourDigits {
+                                    ReviewExpandableCard(
+                                        icon: "number",
+                                        iconColor: FColors.blue,
+                                        title: "Últimos 4 dígitos",
+                                        subtitle: lastFourSubtitle,
+                                        isExpanded: expandedCard == .lastFour,
+                                        onToggle: { toggleCard(.lastFour, proxy: proxy) }
+                                    ) {
+                                        VStack(spacing: 0) {
+                                            LastFourInputContent(
+                                                editor: editor,
+                                                isFocused: $isLastFourFocused,
+                                                focusTask: $lastFourFocusTask,
+                                                refocusToken: lastFourFocusToken
+                                            )
+
+                                            Color.clear
+                                                .frame(height: 1)
+                                                .id(scrollTargetID(for: .lastFour))
+                                        }
+                                    }
+                                }
+
+                                // Payment Reminder
+                                if editor.type.supportsPaymentReminder {
+                                    ReviewCard {
+                                        HStack {
+                                            ReviewIconLabel(
+                                                icon: "bell.fill",
+                                                color: FColors.orange,
+                                                title: "Recordatorio pago",
+                                                subtitle: editor.paymentReminderEnabled
+                                                    ? "Día \(editor.paymentReminderDay) del mes"
+                                                    : "Desactivado"
+                                            )
+                                            Spacer()
+
+                                            if editor.paymentReminderEnabled {
+                                                Button {
+                                                    Constants.Haptic.light()
+                                                    showReminderPicker = true
+                                                } label: {
+                                                    Image(systemName: "pencil")
+                                                        .font(.system(size: 14, weight: .semibold))
+                                                        .foregroundStyle(FColors.brand)
+                                                        .frame(width: 32, height: 32)
+                                                        .background(Circle().fill(FColors.brand.opacity(0.12)))
+                                                }
+                                            }
+
+                                            Toggle("", isOn: $editor.paymentReminderEnabled)
+                                                .labelsHidden()
+                                                .tint(FColors.brand)
+                                        }
+                                    }
+                                }
                             }
+                            .padding(.horizontal, FSpacing.lg)
                         }
-                        .padding(.horizontal, FSpacing.lg)
+                        .padding(.bottom, 20)
                     }
-                    .padding(.bottom, 20)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: (isBalanceFocused || isLastFourFocused) ? Constants.Layout.keyboardSafeAreaPadding : 0)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: isBalanceFocused) { _, newValue in
+                        if !newValue && expandedCard == .balance {
+                            saveAndCollapseBalance(proxy: proxy)
+                        }
+                    }
+                    .onChange(of: isLastFourFocused) { _, newValue in
+                        if !newValue && expandedCard == .lastFour {
+                            saveAndCollapseLastFour(proxy: proxy)
+                        }
+                    }
                 }
-                .scrollDismissesKeyboard(.interactively)
             }
         }
         .sheet(isPresented: $showReminderPicker) {
@@ -986,15 +1058,10 @@ private struct ReviewStepView: View {
                 .presentationDetents([.height(320)])
                 .presentationDragIndicator(.visible)
         }
-        .onChange(of: isBalanceFocused) { _, newValue in
-            if !newValue && expandedCard == .balance {
-                saveAndCollapseBalance()
-            }
-        }
-        .onChange(of: isLastFourFocused) { _, newValue in
-            if !newValue && expandedCard == .lastFour {
-                saveAndCollapseLastFour()
-            }
+        .onDisappear {
+            // Cancelar todos los tasks al salir de la vista
+            cancelAllFocusTasks()
+            cancelScrollTask()
         }
     }
     
@@ -1014,78 +1081,160 @@ private struct ReviewStepView: View {
     
     private func toggleCard(_ card: ReviewField, proxy: ScrollViewProxy) {
         Constants.Haptic.light()
-        focusTask?.cancel()
-        
+
+        // Scroll siempre se cancela (evita peleas)
+        cancelScrollTask()
+
+        // ===== COLAPSAR MISMO CARD =====
         if expandedCard == card {
-            if card == .balance {
+            cancelAllFocusTasks()
+            switch card {
+            case .balance:
                 editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
-            } else if card == .lastFour {
+                isBalanceFocused = false
+            case .lastFour:
                 editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
+                isLastFourFocused = false
             }
-            
-            isBalanceFocused = false
-            isLastFourFocused = false
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                expandedCard = nil
-            }
+
+            hideKeyboard()
+
+            withAnimation(Constants.Animation.cardSpring) { expandedCard = nil }
+            scrollToPreviewTop(using: proxy, onlyIfCollapsed: card, nudge: false)
             return
         }
-        
+
+        // ===== CAMBIAR A OTRO CARD =====
         if expandedCard != nil {
+            cancelAllFocusTasks()
             isBalanceFocused = false
             isLastFourFocused = false
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            hideKeyboard()
         }
-        
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+
+        // ===== EXPANDIR =====
+        withAnimation(Constants.Animation.cardSpring) {
             expandedCard = card
         }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now()) {
-            focusTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(150))
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
-                    proxy.scrollTo(card, anchor: .center)
-                }
+
+        // Pide focus siempre que expandes
+        switch card {
+        case .balance:
+            balanceFocusToken += 1
+            isBalanceFocused = true
+            isLastFourFocused = false
+        case .lastFour:
+            lastFourFocusToken += 1
+            isLastFourFocused = true
+            isBalanceFocused = false
+        }
+
+        // Scroll al target con doble nudge
+        let target = scrollTargetID(for: card)
+
+        scrollTask = Task { @MainActor in
+            try? await Task.sleep(for: Constants.Timing.expandedCardScrollDelay)
+            guard !Task.isCancelled else { return }
+            guard expandedCard == card else { return }
+
+            withAnimation(Constants.Animation.smoothSpring) {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
+
+            try? await Task.sleep(for: Constants.Timing.scrollNudgeDelay)
+            guard !Task.isCancelled else { return }
+            guard expandedCard == card else { return }
+
+            withAnimation(Constants.Animation.smoothSpring) {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
+        }
+    }
+
+    
+    private func scrollToPreviewTop(
+        using proxy: ScrollViewProxy,
+        onlyIfCollapsed expectedCard: ReviewField? = nil,
+        nudge: Bool
+    ) {
+        cancelScrollTask()
+
+        scrollTask = Task { @MainActor in
+            // Pequeño delay para que la animación de colapso/layout asiente
+            try? await Task.sleep(for: Constants.Timing.scrollNudgeDelay)
+            guard !Task.isCancelled else { return }
+
+            if let expectedCard {
+                // Solo scrollea si ya NO está expandido ese card
+                guard expandedCard != expectedCard else { return }
+            }
+
+            withAnimation(Constants.Animation.smoothSpring) {
+                proxy.scrollTo("preview", anchor: .top)
+            }
+
+            guard nudge else { return }
+
+            // Nudge extra solo cuando vale la pena
+            try? await Task.sleep(for: .milliseconds(160))
+            guard !Task.isCancelled else { return }
+
+            if let expectedCard {
+                guard expandedCard != expectedCard else { return }
+            }
+
+            withAnimation(Constants.Animation.smoothSpring) {
+                proxy.scrollTo("preview", anchor: .top)
             }
         }
     }
     
-    private func dismissKeyboardAndCollapse() {
-        focusTask?.cancel()
-        
+    private func dismissKeyboardAndCollapse(proxy: ScrollViewProxy) {
+        // Cancela todo antes de cambiar estado
+        cancelAllFocusTasks()
+        cancelScrollTask()
+
+        let collapsing = expandedCard
+
+        // Persist flags antes de cerrar
         if expandedCard == .balance {
             editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
         }
         if expandedCard == .lastFour {
             editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
         }
-        
+
         isBalanceFocused = false
         isLastFourFocused = false
-        
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+        hideKeyboard()
+
+        withAnimation(Constants.Animation.cardSpring) {
             expandedCard = nil
         }
-        
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+
+        scrollToPreviewTop(using: proxy, onlyIfCollapsed: collapsing, nudge: false)
     }
     
-    private func saveAndCollapseBalance() {
+    private func saveAndCollapseBalance(proxy: ScrollViewProxy) {
         editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+        let collapsing: ReviewField? = .balance
+
+        withAnimation(Constants.Animation.cardSpring) {
             expandedCard = nil
         }
+
+        scrollToPreviewTop(using: proxy, onlyIfCollapsed: collapsing, nudge: false)
     }
-    
-    private func saveAndCollapseLastFour() {
+
+    private func saveAndCollapseLastFour(proxy: ScrollViewProxy) {
         editor.lastFourEnabled = !editor.lastFourDigits.isEmpty
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+        let collapsing: ReviewField? = .lastFour
+
+        withAnimation(Constants.Animation.cardSpring) {
             expandedCard = nil
         }
+
+        scrollToPreviewTop(using: proxy, onlyIfCollapsed: collapsing, nudge: false)
     }
 }
 
@@ -1147,7 +1296,7 @@ private struct ReviewExpandableCard<Content: View>: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(FColors.textTertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isExpanded)
+                        .animation(Constants.Animation.selectionSpring, value: isExpanded)
                 }
                 .contentShape(Rectangle())
             }
@@ -1179,6 +1328,7 @@ private struct BalanceInputContent: View {
     @Bindable var editor: WalletEditorViewModel
     @Binding var isFocused: Bool
     @Binding var focusTask: Task<Void, Never>?
+    let refocusToken: Int
 
     @Environment(\.colorScheme) private var colorScheme
     private let maxLength = 15
@@ -1216,14 +1366,21 @@ private struct BalanceInputContent: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(isFocused ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
         )
-        .onAppear { triggerFocus() }
-        .onDisappear { focusTask?.cancel() }
+        .onAppear { triggerFocusIfNeeded() }
+        .onChange(of: refocusToken) { _, _ in
+            triggerFocusIfNeeded()
+        }
+        .onDisappear {
+            focusTask?.cancel()
+            focusTask = nil
+        }
     }
     
-    private func triggerFocus() {
+    private func triggerFocusIfNeeded() {
+        guard !isFocused else { return }
         focusTask?.cancel()
         focusTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: Constants.Timing.focusDelay)
             guard !Task.isCancelled else { return }
             isFocused = true
         }
@@ -1234,6 +1391,7 @@ private struct LastFourInputContent: View {
     @Bindable var editor: WalletEditorViewModel
     @Binding var isFocused: Bool
     @Binding var focusTask: Task<Void, Never>?
+    let refocusToken: Int
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -1266,14 +1424,21 @@ private struct LastFourInputContent: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(isFocused ? FColors.brand.opacity(0.5) : Color.clear, lineWidth: 1.5)
         )
-        .onAppear { triggerFocus() }
-        .onDisappear { focusTask?.cancel() }
+        .onAppear { triggerFocusIfNeeded() }
+        .onChange(of: refocusToken) { _, _ in
+            triggerFocusIfNeeded()
+        }
+        .onDisappear {
+            focusTask?.cancel()
+            focusTask = nil
+        }
     }
     
-    private func triggerFocus() {
+    private func triggerFocusIfNeeded() {
+        guard !isFocused else { return }
         focusTask?.cancel()
         focusTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: Constants.Timing.focusDelay)
             guard !Task.isCancelled else { return }
             isFocused = true
         }
@@ -1325,7 +1490,7 @@ private struct ReviewIconLabel: View {
                     .foregroundStyle(FColors.textSecondary)
                     .lineLimit(1)
                     .contentTransition(.numericText())
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: subtitle)
+                    .animation(Constants.Animation.numericTransition, value: subtitle)
             }
         }
     }
