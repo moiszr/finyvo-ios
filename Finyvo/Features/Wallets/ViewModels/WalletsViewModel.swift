@@ -3,14 +3,11 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/24/25.
-//  ViewModel principal para la gestión de billeteras.
-//
-//  v2.3 - Production Optimizations:
-//  - @MainActor isolation para SwiftData concurrency safety
-//  - clearDefaultWallet actualiza updatedAt
-//  - Resultado de operaciones para manejo de errores
-//  - Invariante "exactamente 1 default" reforzada
-//  - Haptics delegados a la View layer (no en ViewModel)
+//  Updated on 01/11/26 - Production-ready:
+//    - Front wallet (highest sortOrder) = default wallet
+//    - Restored wallets go to back (lowest sortOrder)
+//    - Optimized reordering with auto-default sync
+//    - Clean task cancellation patterns
 //
 
 import SwiftUI
@@ -18,22 +15,6 @@ import SwiftData
 
 // MARK: - Wallets ViewModel
 
-/// ViewModel principal para la gestión de billeteras.
-///
-/// ## Responsabilidades
-/// - CRUD de billeteras via SwiftData
-/// - Cálculo de balance total (multi-currency)
-/// - Coordinación de navegación y animaciones
-/// - Ajuste de balance manual
-///
-/// ## Uso
-/// ```swift
-/// @State private var viewModel = WalletsViewModel()
-///
-/// .onAppear {
-///     viewModel.configure(with: modelContext)
-/// }
-/// ```
 @Observable
 @MainActor
 final class WalletsViewModel {
@@ -44,106 +25,55 @@ final class WalletsViewModel {
     
     // MARK: - Data State
     
-    /// Todas las billeteras activas (no archivadas)
     private(set) var wallets: [Wallet] = []
-    
-    /// Billeteras archivadas
     private(set) var archivedWallets: [Wallet] = []
     
-    // MARK: - Loading & Error State
+    // MARK: - Error State
     
-    /// Estado de carga
-    private(set) var isLoading: Bool = false
-    
-    /// Error actual para mostrar en UI
     var error: WalletError? = nil
     
     // MARK: - Selection State
     
-    /// Billetera seleccionada para detalle/animación
     var selectedWallet: Wallet? = nil
-    
-    /// ID de la wallet seleccionada (para animaciones)
     var selectedWalletID: UUID? = nil
-    
-    /// Billetera pendiente de acción destructiva
     private var walletPendingAction: Wallet? = nil
     
     // MARK: - Navigation State
     
-    /// Controla visibilidad del detalle (para animación hero)
     var isDetailPresented: Bool = false
-    
-    /// Controla visibilidad del editor
     var isEditorPresented: Bool = false
-    
-    /// Controla visibilidad del ajuste de balance
     var isBalanceAdjustmentPresented: Bool = false
-    
-    /// Modo actual del editor
     private(set) var editorMode: WalletEditorMode = .create
     
     // MARK: - Alert State
     
-    /// Controla alert de confirmación de archivo
     var isArchiveAlertPresented: Bool = false
-    
-    /// Controla alert de confirmación de eliminación
     var isDeleteAlertPresented: Bool = false
     
     // MARK: - Computed Properties
     
-    /// `true` si el contexto está configurado
     var isConfigured: Bool { modelContext != nil }
-    
-    /// `true` si no hay billeteras
     var isEmpty: Bool { wallets.isEmpty }
-    
-    /// Cantidad de billeteras activas
     var walletsCount: Int { wallets.count }
-    
-    /// Cantidad de billeteras archivadas
     var archivedCount: Int { archivedWallets.count }
-    
-    /// `true` si se alcanzó el límite de billeteras
     var isLimitReached: Bool { walletsCount >= AppConfig.Limits.maxWallets }
     
-    /// Billetera por defecto
-    var defaultWallet: Wallet? {
-        wallets.first { $0.isDefault } ?? wallets.first
-    }
+    /// Default wallet = front wallet (last in sortOrder)
+    var defaultWallet: Wallet? { wallets.last }
     
     // MARK: - Balance Calculations
     
-    /// Balance total en la moneda preferida del usuario.
-    /// Convierte todas las wallets a una moneda común.
     var totalBalance: Double {
-        // Por ahora, suma simple sin conversión
-        // TODO: Implementar conversión de moneda real
         wallets.reduce(0) { $0 + $1.currentBalance }
     }
     
-    /// Balance total formateado
     var formattedTotalBalance: String {
         totalBalance.asCurrency()
     }
     
-    /// Total de ingresos del mes actual
-    var monthlyIncome: Double {
-        // TODO: Calcular desde transacciones
-        0
-    }
-    
-    /// Total de gastos del mes actual
-    var monthlyExpenses: Double {
-        // TODO: Calcular desde transacciones
-        0
-    }
-    
-    /// Balance neto del mes (ingresos - gastos)
-    var monthlyNetBalance: Double {
-        monthlyIncome - monthlyExpenses
-    }
+    var monthlyIncome: Double { 0 } // TODO: Calculate from transactions
+    var monthlyExpenses: Double { 0 } // TODO: Calculate from transactions
+    var monthlyNetBalance: Double { monthlyIncome - monthlyExpenses }
     
     // MARK: - Initialization
     
@@ -151,45 +81,28 @@ final class WalletsViewModel {
     
     // MARK: - Configuration
     
-    /// Configura el ModelContext. Llamar desde `onAppear` de la vista.
     func configure(with context: ModelContext) {
         guard modelContext == nil else { return }
         modelContext = context
         loadWallets()
-        
-        // Solo normalizar si hay problema (lazy)
-        if needsNormalization {
-            normalizeDefaultWallet()
-        }
-    }
-
-    private var needsNormalization: Bool {
-        let defaults = wallets.filter { $0.isDefault }
-        return !wallets.isEmpty && defaults.count != 1
+        normalizeDefaultWallet()
     }
     
     // MARK: - Data Loading
     
-    /// Carga todas las billeteras desde SwiftData.
     func loadWallets() {
         guard let context = modelContext else { return }
         
-        // Billeteras activas
         var activeDescriptor = FetchDescriptor<Wallet>(
-            predicate: #Predicate { wallet in
-                !wallet.isArchived
-            }
+            predicate: #Predicate { !$0.isArchived }
         )
         activeDescriptor.sortBy = [
             SortDescriptor(\Wallet.sortOrder, order: .forward),
             SortDescriptor(\Wallet.createdAt, order: .forward)
         ]
         
-        // Billeteras archivadas
         var archivedDescriptor = FetchDescriptor<Wallet>(
-            predicate: #Predicate { wallet in
-                wallet.isArchived
-            }
+            predicate: #Predicate { $0.isArchived }
         )
         archivedDescriptor.sortBy = [SortDescriptor(\Wallet.updatedAt, order: .reverse)]
         
@@ -198,51 +111,39 @@ final class WalletsViewModel {
             archivedWallets = try context.fetch(archivedDescriptor)
             
             if AppConfig.isDebugMode {
-                print("✅ WalletsViewModel: Cargadas \(wallets.count) wallets activas, \(archivedWallets.count) archivadas")
+                print("✅ WalletsViewModel: Loaded \(wallets.count) active, \(archivedWallets.count) archived")
             }
         } catch {
             self.error = .loadFailed
-            print("❌ WalletsViewModel: Error al cargar - \(error)")
+            print("❌ WalletsViewModel: Load error - \(error)")
         }
     }
     
-    // MARK: - Default Wallet Invariant
+    // MARK: - Default Wallet Normalization
     
-    /// Normaliza el estado para asegurar exactamente 1 default wallet si hay wallets.
-    /// Llamar después de cargar o en operaciones que puedan romper la invariante.
+    /// Ensures exactly one wallet (the front/last one) is marked as default
     private func normalizeDefaultWallet() {
         guard !wallets.isEmpty else { return }
         
-        let defaultWallets = wallets.filter { $0.isDefault }
+        // Clear all defaults
+        for wallet in wallets where wallet.isDefault {
+            wallet.isDefault = false
+            wallet.updatedAt = .now
+        }
         
-        if defaultWallets.isEmpty {
-            // No hay default → marcar la primera
-            wallets.first?.isDefault = true
-            wallets.first?.updatedAt = .now
-            save()
-            
-            if AppConfig.isDebugMode {
-                print("⚠️ WalletsViewModel: No había default, marcando primera wallet")
-            }
-        } else if defaultWallets.count > 1 {
-            // Múltiples defaults → dejar solo la primera
-            for (index, wallet) in defaultWallets.enumerated() {
-                if index > 0 {
-                    wallet.isDefault = false
-                    wallet.updatedAt = .now
-                }
-            }
-            save()
-            
-            if AppConfig.isDebugMode {
-                print("⚠️ WalletsViewModel: Múltiples defaults encontrados, normalizando")
-            }
+        // Set last (front) as default
+        wallets.last?.isDefault = true
+        wallets.last?.updatedAt = .now
+        
+        save()
+        
+        if AppConfig.isDebugMode {
+            print("✅ WalletsViewModel: Default normalized to '\(wallets.last?.name ?? "nil")'")
         }
     }
     
     // MARK: - CRUD Operations
     
-    /// Resultado de operación de creación
     enum CreateWalletResult: Sendable {
         case success(walletID: UUID)
         case limitReached
@@ -250,9 +151,7 @@ final class WalletsViewModel {
         case contextNotConfigured
     }
     
-    /// Crea una nueva billetera.
-    /// - Returns: Resultado de la operación para manejo en UI
-    /// - Note: Haptics son responsabilidad de la View que llama este método
+    /// Creates a new wallet at the front (becomes default)
     @discardableResult
     func createWallet(
         name: String,
@@ -267,20 +166,15 @@ final class WalletsViewModel {
         lastFourDigits: String? = nil
     ) -> CreateWalletResult {
         guard let context = modelContext else {
-            print("❌ WalletsViewModel: ModelContext no configurado")
             return .contextNotConfigured
         }
         
-        // Validar límite
         guard !isLimitReached else {
             error = .limitReached
             return .limitReached
         }
         
-        // Si es default, quitar default de las demás
-        if isDefault {
-            clearDefaultWallet()
-        }
+        clearDefaultStatus()
         
         let wallet = Wallet(
             name: name,
@@ -289,7 +183,7 @@ final class WalletsViewModel {
             color: color,
             currencyCode: currencyCode,
             initialBalance: initialBalance,
-            isDefault: isDefault || wallets.isEmpty, // Primera wallet es default
+            isDefault: true, // New wallet goes to front = default
             sortOrder: nextSortOrder(),
             paymentReminderDay: paymentReminderDay,
             notes: notes,
@@ -300,22 +194,19 @@ final class WalletsViewModel {
         
         do {
             try context.save()
-            wallets.append(wallet)
-            wallets.sort { $0.sortOrder < $1.sortOrder }
+            loadWallets()
             
             if AppConfig.isDebugMode {
-                print("✅ WalletsViewModel: Wallet '\(name)' creada")
+                print("✅ WalletsViewModel: Created '\(name)' at front")
             }
             
             return .success(walletID: wallet.id)
         } catch {
             self.error = .saveFailed
-            print("❌ WalletsViewModel: Error al guardar - \(error)")
             return .saveFailed
         }
     }
     
-    /// Actualiza una billetera existente.
     @discardableResult
     func updateWallet(_ wallet: Wallet) -> Bool {
         wallet.updatedAt = .now
@@ -327,70 +218,76 @@ final class WalletsViewModel {
         return false
     }
     
-    /// Establece una billetera como default.
+    /// Sets wallet as default by moving it to front
     @discardableResult
     func setAsDefault(_ wallet: Wallet) -> Bool {
-        clearDefaultWallet()
-        wallet.isDefault = true
-        wallet.updatedAt = .now
-        
-        if save() {
-            loadWallets()
-            return true
+        guard let currentIndex = wallets.firstIndex(where: { $0.id == wallet.id }) else {
+            return false
         }
-        return false
-    }
-    
-    /// Ajusta el balance de una billetera manualmente.
-    /// Crea una transacción de ajuste implícita.
-    @discardableResult
-    func adjustBalance(_ wallet: Wallet, newBalance: Double, reason: String? = nil) -> Bool {
-        let difference = newBalance - wallet.currentBalance
         
-        wallet.currentBalance = newBalance
-        wallet.updatedAt = .now
+        let lastIndex = wallets.count - 1
         
-        // TODO: Crear transacción de ajuste
-        // let adjustment = Transaction(
-        //     type: difference >= 0 ? .adjustment : .adjustment,
-        //     amount: abs(difference),
-        //     wallet: wallet,
-        //     note: reason ?? "Ajuste de balance"
-        // )
-        
-        if save() {
-            loadWallets()
-            
-            if AppConfig.isDebugMode {
-                print("✅ WalletsViewModel: Balance ajustado de \(wallet.name): \(difference >= 0 ? "+" : "")\(difference)")
+        if currentIndex == lastIndex {
+            // Already at front, just ensure isDefault flag
+            if !wallet.isDefault {
+                clearDefaultStatus()
+                wallet.isDefault = true
+                wallet.updatedAt = .now
+                return save()
             }
             return true
         }
+        
+        // Move to front
+        moveWallet(from: IndexSet(integer: currentIndex), to: lastIndex + 1)
+        return true
+    }
+    
+    @discardableResult
+    func adjustBalance(_ wallet: Wallet, newBalance: Double, reason: String? = nil) -> Bool {
+        wallet.currentBalance = newBalance
+        wallet.updatedAt = .now
+        
+        if save() {
+            loadWallets()
+            return true
+        }
         return false
     }
     
-    /// Archiva una billetera.
     @discardableResult
     func archiveWallet(_ wallet: Wallet) -> Bool {
-        guard !wallet.isDefault else {
+        // Cannot archive the front (default) wallet
+        guard wallet.id != wallets.last?.id else {
             error = .cannotArchiveDefault
             return false
         }
         
         wallet.isArchived = true
+        wallet.isDefault = false
         wallet.updatedAt = .now
         
         if save() {
             loadWallets()
+            normalizeDefaultWallet()
             return true
         }
         return false
     }
     
-    /// Restaura una billetera archivada.
+    /// Restores a wallet to the BACK (lowest sortOrder), preserving current default
     @discardableResult
     func restoreWallet(_ wallet: Wallet) -> Bool {
+        // Shift all existing wallets up by 1
+        for w in wallets {
+            w.sortOrder += 1
+            w.updatedAt = .now
+        }
+        
+        // Place restored wallet at the back (sortOrder 0)
         wallet.isArchived = false
+        wallet.isDefault = false // NOT default - keep current default
+        wallet.sortOrder = 0
         wallet.updatedAt = .now
         
         if save() {
@@ -400,26 +297,15 @@ final class WalletsViewModel {
         return false
     }
     
-    /// Elimina permanentemente una billetera.
     @discardableResult
     func deleteWallet(_ wallet: Wallet) -> Bool {
         guard let context = modelContext else { return false }
-        
-        let wasDefault = wallet.isDefault
-        
-        // No permitir eliminar si tiene transacciones
-        // TODO: Verificar transacciones vinculadas
         
         context.delete(wallet)
         
         if save() {
             loadWallets()
-            
-            // Si era default, normalizar para asignar nuevo default
-            if wasDefault {
-                normalizeDefaultWallet()
-            }
-            
+            normalizeDefaultWallet()
             return true
         }
         return false
@@ -427,22 +313,30 @@ final class WalletsViewModel {
     
     // MARK: - Reordering
     
-    /// Mueve una billetera en la lista.
+    /// Moves wallet and auto-syncs default to front wallet
     func moveWallet(from source: IndexSet, to destination: Int) {
         var reorderedWallets = wallets
         reorderedWallets.move(fromOffsets: source, toOffset: destination)
         
         for (index, wallet) in reorderedWallets.enumerated() {
             wallet.sortOrder = index
+            wallet.updatedAt = .now
         }
+        
+        // Front wallet is default
+        clearDefaultStatus()
+        reorderedWallets.last?.isDefault = true
         
         _ = save()
         loadWallets()
+        
+        if AppConfig.isDebugMode {
+            print("✅ WalletsViewModel: Reordered. Default: '\(wallets.last?.name ?? "nil")'")
+        }
     }
     
     // MARK: - Navigation Actions
     
-    /// Presenta el editor en modo crear.
     func presentCreate() {
         guard !isLimitReached else {
             error = .limitReached
@@ -454,14 +348,12 @@ final class WalletsViewModel {
         isEditorPresented = true
     }
     
-    /// Presenta el editor en modo editar.
     func presentEdit(_ wallet: Wallet) {
         editorMode = .edit(wallet)
         selectedWallet = wallet
         isEditorPresented = true
     }
     
-    /// Presenta el detalle de una billetera con animación hero.
     func presentDetail(_ wallet: Wallet) {
         selectedWallet = wallet
         selectedWalletID = wallet.id
@@ -471,13 +363,11 @@ final class WalletsViewModel {
         }
     }
     
-    /// Cierra el detalle con animación.
     func dismissDetail() {
         withAnimation(Constants.Animation.smoothSpring) {
             isDetailPresented = false
         }
         
-        // Limpiar selección después de la animación
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(Constants.Timing.dismissCleanupDelay))
             selectedWallet = nil
@@ -485,61 +375,49 @@ final class WalletsViewModel {
         }
     }
     
-    /// Presenta el ajuste de balance.
     func presentBalanceAdjustment(_ wallet: Wallet) {
         selectedWallet = wallet
         isBalanceAdjustmentPresented = true
     }
     
-    /// Presenta el alert de confirmación de archivo.
     func presentArchiveAlert(_ wallet: Wallet) {
         walletPendingAction = wallet
         isArchiveAlertPresented = true
     }
     
-    /// Presenta el alert de confirmación de eliminación.
     func presentDeleteAlert(_ wallet: Wallet) {
         walletPendingAction = wallet
         isDeleteAlertPresented = true
     }
     
-    /// Cierra el editor y limpia estado.
     func dismissEditor() {
         isEditorPresented = false
         selectedWallet = nil
         editorMode = .create
     }
     
-    /// Confirma y ejecuta el archivo pendiente.
     func confirmArchive() {
         guard let wallet = walletPendingAction else { return }
         _ = archiveWallet(wallet)
-        cleanupPendingAction()
+        walletPendingAction = nil
         isArchiveAlertPresented = false
     }
     
-    /// Confirma y ejecuta la eliminación pendiente.
     func confirmDelete() {
         guard let wallet = walletPendingAction else { return }
         _ = deleteWallet(wallet)
-        cleanupPendingAction()
+        walletPendingAction = nil
         isDeleteAlertPresented = false
     }
     
-    /// Cancela la acción pendiente.
     func cancelPendingAction() {
-        cleanupPendingAction()
+        walletPendingAction = nil
         isArchiveAlertPresented = false
         isDeleteAlertPresented = false
     }
     
     // MARK: - Private Helpers
     
-    private func cleanupPendingAction() {
-        walletPendingAction = nil
-    }
-    
-    /// Guarda el contexto y retorna éxito/fallo
     @discardableResult
     private func save() -> Bool {
         do {
@@ -547,7 +425,7 @@ final class WalletsViewModel {
             return true
         } catch {
             self.error = .saveFailed
-            print("❌ WalletsViewModel: Error al guardar - \(error)")
+            print("❌ WalletsViewModel: Save error - \(error)")
             return false
         }
     }
@@ -556,8 +434,7 @@ final class WalletsViewModel {
         (wallets.map(\.sortOrder).max() ?? -1) + 1
     }
     
-    /// Quita el flag isDefault de todas las wallets (actualiza updatedAt)
-    private func clearDefaultWallet() {
+    private func clearDefaultStatus() {
         for wallet in wallets where wallet.isDefault {
             wallet.isDefault = false
             wallet.updatedAt = .now
@@ -567,7 +444,6 @@ final class WalletsViewModel {
 
 // MARK: - Wallet Error
 
-/// Errores posibles en operaciones de billetera.
 enum WalletError: Error, LocalizedError, Identifiable, Sendable {
     case notFound
     case duplicateName
@@ -582,42 +458,29 @@ enum WalletError: Error, LocalizedError, Identifiable, Sendable {
     
     var errorDescription: String? {
         switch self {
-        case .notFound:
-            return "Billetera no encontrada"
-        case .duplicateName:
-            return "Ya existe una billetera con ese nombre"
-        case .saveFailed:
-            return "Error al guardar los cambios"
-        case .loadFailed:
-            return "Error al cargar las billeteras"
-        case .invalidData:
-            return "Datos inválidos"
-        case .limitReached:
-            return "Has alcanzado el límite de \(AppConfig.Limits.maxWallets) billeteras"
-        case .cannotArchiveDefault:
-            return "No puedes archivar la billetera principal"
-        case .hasTransactions:
-            return "Esta billetera tiene transacciones asociadas"
+        case .notFound: return "Billetera no encontrada"
+        case .duplicateName: return "Ya existe una billetera con ese nombre"
+        case .saveFailed: return "Error al guardar los cambios"
+        case .loadFailed: return "Error al cargar las billeteras"
+        case .invalidData: return "Datos inválidos"
+        case .limitReached: return "Has alcanzado el límite de \(AppConfig.Limits.maxWallets) billeteras"
+        case .cannotArchiveDefault: return "No puedes archivar la billetera principal"
+        case .hasTransactions: return "Esta billetera tiene transacciones asociadas"
         }
     }
     
     var recoverySuggestion: String? {
         switch self {
-        case .limitReached:
-            return "Archiva algunas billeteras que no uses"
-        case .cannotArchiveDefault:
-            return "Primero establece otra billetera como principal"
-        case .saveFailed, .loadFailed:
-            return "Intenta de nuevo o reinicia la app"
-        default:
-            return nil
+        case .limitReached: return "Archiva algunas billeteras que no uses"
+        case .cannotArchiveDefault: return "Primero mueve otra billetera al frente"
+        case .saveFailed, .loadFailed: return "Intenta de nuevo o reinicia la app"
+        default: return nil
         }
     }
 }
 
 // MARK: - Wallet Editor Mode
 
-/// Modo del editor de billeteras.
 enum WalletEditorMode: Equatable, Sendable {
     case create
     case edit(Wallet)
@@ -627,14 +490,10 @@ enum WalletEditorMode: Equatable, Sendable {
         return false
     }
     
-    var isCreating: Bool {
-        self == .create
-    }
+    var isCreating: Bool { self == .create }
     
     var wallet: Wallet? {
-        if case .edit(let wallet) = self {
-            return wallet
-        }
+        if case .edit(let wallet) = self { return wallet }
         return nil
     }
     
@@ -647,12 +506,9 @@ enum WalletEditorMode: Equatable, Sendable {
     
     static func == (lhs: WalletEditorMode, rhs: WalletEditorMode) -> Bool {
         switch (lhs, rhs) {
-        case (.create, .create):
-            return true
-        case (.edit(let lhsWallet), .edit(let rhsWallet)):
-            return lhsWallet.id == rhsWallet.id
-        default:
-            return false
+        case (.create, .create): return true
+        case (.edit(let l), .edit(let r)): return l.id == r.id
+        default: return false
         }
     }
 }

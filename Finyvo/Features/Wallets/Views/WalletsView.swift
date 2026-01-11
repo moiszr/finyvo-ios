@@ -2,16 +2,13 @@
 //  WalletsView.swift
 //  Finyvo
 //
-//  Created by Claude for Moises Núñez on 12/25/25.
-//  Vista de billeteras con Hero Animation estilo Apple Wallet.
-//
-//  Production-Ready Improvements:
-//  - Adaptive layout using GeometryReader (iPad/Split View compatible)
-//  - Single source of truth for selection (selectedWalletID)
-//  - Reactive to wallet ID changes with dictionary cleanup
-//  - Centralized animation timing constants
-//  - Cancellable animation tasks
-//  - Enhanced accessibility labels
+//  Created by Moises Núñez on 12/25/25.
+//  Updated on 01/11/26 - Production-ready refactor:
+//    - Drag & drop reordering (Apple Wallet style)
+//    - Front card (last in sortOrder) = default wallet
+//    - Swipe actions + context menu for archived wallets
+//    - Restored wallets go to back (preserve current default)
+//    - Optimized animations and memory management
 //
 
 import SwiftUI
@@ -25,31 +22,35 @@ struct WalletsView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
     
     // MARK: - State
     
     @State private var viewModel = WalletsViewModel()
-    
-    /// Single source of truth: solo guardamos el ID, derivamos el Wallet
     @State private var selectedWalletID: UUID? = nil
     @State private var isShowingDetail: Bool = false
     @State private var dragOffset: CGFloat = 0
     
-    // Animation states para cada tarjeta
+    // Animation states
     @State private var cardAnimationOffsets: [UUID: CGFloat] = [:]
     @State private var cardAnimationOpacities: [UUID: Double] = [:]
     @State private var cardAnimationScales: [UUID: CGFloat] = [:]
     
-    // Control de contenido
+    // Content visibility
     @State private var showBalanceCard: Bool = true
     @State private var showDetailContent: Bool = false
     
-    // Task de animación cancelable
+    // Cancelable tasks
     @State private var animationTask: Task<Void, Never>?
-    
-    // Task de acción post-cierre cancelable (evita acciones fantasma)
     @State private var actionTask: Task<Void, Never>?
+    
+    // Drag & Drop
+    @State private var draggingWalletID: UUID? = nil
+    @State private var dragTranslation: CGFloat = 0
+    @State private var initialDragIndex: Int? = nil
+    @State private var currentDropIndex: Int? = nil
+    
+    // Sheets
+    @State private var isArchivedPresented: Bool = false
     
     // MARK: - Query
     
@@ -64,44 +65,43 @@ struct WalletsView: View {
     
     // MARK: - Derived State
     
-    /// Wallet seleccionado derivado del ID (single source of truth)
     private var selectedWallet: Wallet? {
         guard let id = selectedWalletID else { return nil }
         return wallets.first { $0.id == id }
     }
     
-    /// Índice del wallet seleccionado
     private var selectedIndex: Int? {
         guard let id = selectedWalletID else { return nil }
         return wallets.firstIndex { $0.id == id }
     }
     
-    /// IDs actuales para detectar cambios
-    private var walletIDs: [UUID] {
-        wallets.map(\.id)
-    }
+    private var walletIDs: [UUID] { wallets.map(\.id) }
     
-    // MARK: - Animation Timing Constants (centralizados)
+    private var frontWallet: Wallet? { wallets.last }
     
-    private enum AnimationTiming {
+    // MARK: - Animation Constants
+    
+    private enum Timing {
         static let phaseDelay: Duration = .milliseconds(200)
         static let balanceCardDelay: Duration = .milliseconds(120)
         static let cleanupDelay: Duration = .milliseconds(350)
         static let actionDelay: Duration = .milliseconds(400)
     }
     
-    // MARK: - Animation Constants
-    
     private var heroSpring: Animation {
-        .spring(response: 0.6, dampingFraction: 0.78, blendDuration: 0)
+        .spring(response: 0.6, dampingFraction: 0.78)
     }
     
     private var secondarySpring: Animation {
-        .spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0)
+        .spring(response: 0.5, dampingFraction: 0.8)
     }
     
     private var quickSpring: Animation {
-        .spring(response: 0.35, dampingFraction: 0.75, blendDuration: 0)
+        .spring(response: 0.35, dampingFraction: 0.75)
+    }
+    
+    private var dragSpring: Animation {
+        .spring(response: 0.4, dampingFraction: 0.7)
     }
     
     private let staggerDelay: Double = 0.035
@@ -111,9 +111,6 @@ struct WalletsView: View {
     private let visibleStackPortion: CGFloat = 55
     private let cardHorizontalPadding: CGFloat = 20
     private let cardAspectRatio: CGFloat = 1.586
-    private let cardCornerRadius: CGFloat = 20
-    
-    // MARK: - Computed (usando geometry, no UIScreen)
     
     private func cardWidth(in geometry: GeometryProxy) -> CGFloat {
         geometry.size.width - (cardHorizontalPadding * 2)
@@ -141,16 +138,15 @@ struct WalletsView: View {
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar { toolbarContent }
         .sheet(isPresented: $viewModel.isEditorPresented) {
-            if viewModel.editorMode == .create {
-                WalletCreationFlow(viewModel: viewModel)
-            } else {
-                WalletEditorSheet(viewModel: viewModel, mode: viewModel.editorMode)
-            }
+            editorSheet
         }
         .sheet(isPresented: $viewModel.isBalanceAdjustmentPresented) {
             if let wallet = viewModel.selectedWallet {
                 BalanceAdjustmentSheet(wallet: wallet, viewModel: viewModel)
             }
+        }
+        .sheet(isPresented: $isArchivedPresented) {
+            ArchivedWalletsSheet(viewModel: viewModel)
         }
         .alert("Archivar billetera", isPresented: $viewModel.isArchiveAlertPresented) {
             Button("Cancelar", role: .cancel) {}
@@ -159,58 +155,62 @@ struct WalletsView: View {
             Text("La billetera se ocultará pero sus transacciones se mantendrán.")
         }
         .task {
-            // Guard: configure es idempotente en el viewModel,
-            // pero syncAnimationStates puede correr múltiples veces sin problema
             viewModel.configure(with: modelContext)
             syncAnimationStates()
+            ensureFrontWalletIsDefault()
         }
         .onChange(of: walletIDs) { oldIDs, newIDs in
-            // Reaccionar a cambios de IDs (no solo count)
             syncAnimationStates(oldIDs: oldIDs, newIDs: newIDs)
+            ensureFrontWalletIsDefault()
         }
         .onDisappear {
-            // Cancelar todas las tareas pendientes al salir
             animationTask?.cancel()
             actionTask?.cancel()
         }
     }
     
+    // MARK: - Editor Sheet
+    
+    @ViewBuilder
+    private var editorSheet: some View {
+        if viewModel.editorMode == .create {
+            WalletCreationFlow(viewModel: viewModel)
+        } else {
+            WalletEditorSheet(viewModel: viewModel, mode: viewModel.editorMode)
+        }
+    }
+    
+    // MARK: - Ensure Front Wallet is Default
+    
+    private func ensureFrontWalletIsDefault() {
+        guard let front = frontWallet, !front.isDefault else { return }
+        viewModel.setAsDefault(front)
+    }
+    
     // MARK: - Sync Animation States
     
-    /// Sincroniza los diccionarios de animación con los wallets actuales
     private func syncAnimationStates(oldIDs: [UUID]? = nil, newIDs: [UUID]? = nil) {
         let currentIDs = Set(walletIDs)
         
-        // Agregar estados para nuevos wallets
         for id in currentIDs {
-            if cardAnimationOffsets[id] == nil {
-                cardAnimationOffsets[id] = 0
-            }
-            if cardAnimationOpacities[id] == nil {
-                cardAnimationOpacities[id] = 1
-            }
-            if cardAnimationScales[id] == nil {
-                cardAnimationScales[id] = 1
-            }
+            cardAnimationOffsets[id] = cardAnimationOffsets[id] ?? 0
+            cardAnimationOpacities[id] = cardAnimationOpacities[id] ?? 1
+            cardAnimationScales[id] = cardAnimationScales[id] ?? 1
         }
         
-        // Limpiar estados de wallets eliminados (evita memory leak)
         if let oldIDs = oldIDs {
-            let removedIDs = Set(oldIDs).subtracting(currentIDs)
-            for id in removedIDs {
+            for id in Set(oldIDs).subtracting(currentIDs) {
                 cardAnimationOffsets.removeValue(forKey: id)
                 cardAnimationOpacities.removeValue(forKey: id)
                 cardAnimationScales.removeValue(forKey: id)
             }
         }
         
-        // Si el wallet seleccionado fue eliminado, cerrar detalle
         if let selectedID = selectedWalletID, !currentIDs.contains(selectedID) {
             resetToListState()
         }
     }
     
-    /// Resetea al estado de lista sin animación
     private func resetToListState() {
         selectedWalletID = nil
         isShowingDetail = false
@@ -220,75 +220,95 @@ struct WalletsView: View {
         viewModel.selectedWallet = nil
     }
     
-    // MARK: - Toolbar Content
+    // MARK: - Toolbar
     
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        
         if isShowingDetail {
             ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    closeDetail()
-                } label: {
+                Button { closeDetail() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(FColors.textPrimary)
                 }
-                .accessibilityLabel("Cerrar detalle")
+                .accessibilityLabel("Cerrar")
             }
             
             ToolbarItem(placement: .topBarTrailing) {
                 if let wallet = selectedWallet {
-                    Menu {
-                        Button {
-                            closeDetailAndThen { viewModel.presentEdit(wallet) }
-                        } label: {
-                            Label("Editar Billetera", systemImage: "pencil")
-                        }
-                        
-                        Button {
-                            viewModel.selectedWallet = wallet
-                            viewModel.isBalanceAdjustmentPresented = true
-                        } label: {
-                            Label("Ajustar Balance", systemImage: "plusminus.circle")
-                        }
-                        
-                        Button {
-                            // TODO: Transferencia
-                        } label: {
-                            Label("Agregar Transferencia", systemImage: "arrow.left.arrow.right")
-                        }
-                        
-                        if !wallet.isDefault {
-                            Divider()
-                            Button(role: .destructive) {
-                                closeDetailAndThen { viewModel.presentArchiveAlert(wallet) }
-                            } label: {
-                                Label("Archivar", systemImage: "archivebox")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(FColors.textPrimary)
-                    }
-                    .accessibilityLabel("Opciones de billetera")
+                    detailMenu(for: wallet)
                 }
             }
-            
         } else {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    viewModel.presentCreate()
-                } label: {
+                Button { isArchivedPresented = true } label: {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(FColors.textPrimary)
+                }
+                .accessibilityLabel("Archivadas")
+            }
+            
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { viewModel.presentCreate() } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(FColors.textPrimary)
                 }
                 .disabled(viewModel.isLimitReached)
-                .accessibilityLabel("Crear billetera")
+                .accessibilityLabel("Crear")
             }
         }
+    }
+    
+    // MARK: - Detail Menu
+    
+    @ViewBuilder
+    private func detailMenu(for wallet: Wallet) -> some View {
+        Menu {
+            Button {
+                closeDetailAndThen { viewModel.presentEdit(wallet) }
+            } label: {
+                Label("Editar", systemImage: "pencil")
+            }
+            
+            Button {
+                viewModel.selectedWallet = wallet
+                viewModel.isBalanceAdjustmentPresented = true
+            } label: {
+                Label("Ajustar balance", systemImage: "plusminus.circle")
+            }
+            
+            if !wallet.isDefault {
+                Button {
+                    moveWalletToFront(wallet)
+                    closeDetail()
+                } label: {
+                    Label("Hacer principal", systemImage: "star")
+                }
+            }
+            
+            Button {
+                // TODO: Transfer
+            } label: {
+                Label("Transferir", systemImage: "arrow.left.arrow.right")
+            }
+            
+            if !wallet.isDefault {
+                Divider()
+                
+                Button(role: .destructive) {
+                    closeDetailAndThen { viewModel.presentArchiveAlert(wallet) }
+                } label: {
+                    Label("Archivar", systemImage: "archivebox")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(FColors.textPrimary)
+        }
+        .accessibilityLabel("Opciones")
     }
     
     // MARK: - Main Content
@@ -305,14 +325,13 @@ struct WalletsView: View {
                 }
                 
                 if isShowingDetail {
-                    Spacer()
-                        .frame(height: FSpacing.xs)
+                    Spacer().frame(height: FSpacing.xs)
                 }
                 
                 walletStack(geometry: geometry)
                 
                 if showDetailContent, let wallet = selectedWallet {
-                    detailContent(wallet: wallet, geometry: geometry)
+                    detailContent(wallet: wallet)
                         .padding(.top, FSpacing.lg)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
@@ -339,88 +358,147 @@ struct WalletsView: View {
     @ViewBuilder
     private func walletCardItem(wallet: Wallet, index: Int, geometry: GeometryProxy) -> some View {
         let baseOffset = CGFloat(index) * visibleStackPortion
-        let animationOffset = cardAnimationOffsets[wallet.id] ?? 0
+        let animOffset = cardAnimationOffsets[wallet.id] ?? 0
         let opacity = cardAnimationOpacities[wallet.id] ?? 1
         let scale = cardAnimationScales[wallet.id] ?? 1
         let isSelected = selectedWalletID == wallet.id
-        
+        let isDragging = draggingWalletID == wallet.id
         let isLastCard = index == wallets.count - 1
         let height = cardHeight(in: geometry)
         let width = cardWidth(in: geometry)
         
-        // Área de toque dinámica según estado
-        let hitTestHeight: CGFloat = {
-            if isShowingDetail && isSelected {
-                return height
-            } else {
-                return isLastCard ? height : visibleStackPortion
-            }
-        }()
+        let dragAdjustedOffset = calculateDragOffset(for: index, baseOffset: baseOffset)
+        let hitTestHeight: CGFloat = (isShowingDetail && isSelected) ? height : (isLastCard ? height : visibleStackPortion)
         
         WalletCardView(wallet: wallet, isExpanded: isShowingDetail && isSelected)
             .padding(.horizontal, cardHorizontalPadding)
-            .contentShape(
-                .interaction,
-                Rectangle()
-                    .size(width: width, height: hitTestHeight)
-            )
-            .contentShape(
-                .contextMenuPreview,
-                RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-            )
-            .offset(y: baseOffset + animationOffset + (isSelected ? dragOffset : 0))
+            .contentShape(.interaction, Rectangle().size(width: width, height: hitTestHeight))
+            .offset(y: dragAdjustedOffset + animOffset + (isSelected && !isDragging ? dragOffset : 0))
             .opacity(opacity)
-            .scaleEffect(scale, anchor: .top)
-            .zIndex(zIndexForCard(at: index))
+            .scaleEffect(isDragging ? 1.03 : scale, anchor: .top)
+            .shadow(color: isDragging ? .black.opacity(0.2) : .clear, radius: isDragging ? 15 : 0, y: isDragging ? 8 : 0)
+            .zIndex(zIndex(for: index, isDragging: isDragging))
             .onTapGesture {
-                if !isShowingDetail {
-                    selectWallet(wallet, at: index)
-                }
+                guard !isShowingDetail, draggingWalletID == nil else { return }
+                selectWallet(wallet, at: index)
             }
             .gesture(isSelected && isShowingDetail ? dragToDismissGesture : nil)
-            .contextMenu {
-                if !isShowingDetail {
-                    contextMenuContent(for: wallet)
-                }
-            }
-            .accessibilityLabel("\(wallet.name), balance \(wallet.formattedBalance)")
-            .accessibilityHint(isShowingDetail ? "Desliza hacia abajo para cerrar" : "Toca para ver detalles")
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .gesture(!isShowingDetail ? reorderGesture(for: wallet, at: index, cardHeight: height) : nil)
+            .accessibilityLabel("\(wallet.name), \(wallet.formattedBalance)\(wallet.isDefault ? ", principal" : "")")
+            .accessibilityHint(isShowingDetail ? "Desliza abajo para cerrar" : "Toca para detalles")
     }
     
-    private func zIndexForCard(at index: Int) -> Double {
-        if isShowingDetail {
-            if let selectedIdx = selectedIndex {
-                return index == selectedIdx ? 1000 : Double(index)
-            }
+    // MARK: - Drag Offset Calculation
+    
+    private func calculateDragOffset(for index: Int, baseOffset: CGFloat) -> CGFloat {
+        guard let dragIndex = initialDragIndex, draggingWalletID != nil else {
+            return baseOffset
+        }
+        
+        if wallets[index].id == draggingWalletID {
+            return baseOffset + dragTranslation
+        }
+        
+        let draggedOffset = CGFloat(dragIndex) * visibleStackPortion + dragTranslation
+        
+        if dragIndex < index && draggedOffset > baseOffset - visibleStackPortion / 2 {
+            return baseOffset - visibleStackPortion
+        }
+        
+        if dragIndex > index && draggedOffset < baseOffset + visibleStackPortion / 2 {
+            return baseOffset + visibleStackPortion
+        }
+        
+        return baseOffset
+    }
+    
+    private func zIndex(for index: Int, isDragging: Bool) -> Double {
+        if isDragging { return 1000 }
+        if isShowingDetail, let selectedIdx = selectedIndex {
+            return index == selectedIdx ? 1000 : Double(index)
         }
         return Double(index)
     }
     
-    // MARK: - Select Wallet Animation
+    // MARK: - Reorder Gesture
+    
+    private func reorderGesture(for wallet: Wallet, at index: Int, cardHeight: CGFloat) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture())
+            .onChanged { value in
+                if case .second(true, let drag) = value, let drag = drag {
+                    if draggingWalletID == nil {
+                        draggingWalletID = wallet.id
+                        initialDragIndex = index
+                        Constants.Haptic.medium()
+                    }
+                    
+                    withAnimation(dragSpring) {
+                        dragTranslation = drag.translation.height
+                    }
+                    
+                    let newIndex = calculateNewIndex(from: index, translation: drag.translation.height)
+                    if newIndex != currentDropIndex {
+                        currentDropIndex = newIndex
+                        Constants.Haptic.selection()
+                    }
+                }
+            }
+            .onEnded { _ in
+                guard draggingWalletID != nil else { return }
+                
+                if let fromIndex = initialDragIndex,
+                   let toIndex = currentDropIndex,
+                   fromIndex != toIndex {
+                    viewModel.moveWallet(from: IndexSet(integer: fromIndex), to: toIndex > fromIndex ? toIndex + 1 : toIndex)
+                    Constants.Haptic.success()
+                } else {
+                    Constants.Haptic.light()
+                }
+                
+                withAnimation(dragSpring) {
+                    draggingWalletID = nil
+                    dragTranslation = 0
+                    initialDragIndex = nil
+                    currentDropIndex = nil
+                }
+            }
+    }
+    
+    private func calculateNewIndex(from index: Int, translation: CGFloat) -> Int {
+        let movement = Int(round(translation / visibleStackPortion))
+        return max(0, min(wallets.count - 1, index + movement))
+    }
+    
+    // MARK: - Move Wallet to Front
+    
+    private func moveWalletToFront(_ wallet: Wallet) {
+        guard let currentIndex = wallets.firstIndex(where: { $0.id == wallet.id }) else { return }
+        let lastIndex = wallets.count - 1
+        
+        if currentIndex != lastIndex {
+            viewModel.moveWallet(from: IndexSet(integer: currentIndex), to: lastIndex + 1)
+            Constants.Haptic.success()
+        }
+    }
+    
+    // MARK: - Select Wallet
     
     private func selectWallet(_ wallet: Wallet, at index: Int) {
-        // Cancelar animación anterior si existe
         animationTask?.cancel()
+        Constants.Haptic.medium()
         
-        Task { @MainActor in Constants.Haptic.medium() }
-        
-        // Single source of truth: solo guardamos el ID
         selectedWalletID = wallet.id
         viewModel.selectedWallet = wallet
         
-        let selectedBaseOffset = CGFloat(index) * visibleStackPortion
-        let targetOffset: CGFloat = -selectedBaseOffset
+        let targetOffset: CGFloat = -CGFloat(index) * visibleStackPortion
         
-        // Fase 1: Ocultar balance card
         withAnimation(secondarySpring) {
             showBalanceCard = false
         }
         
-        // Fase 2: Animar tarjetas con stagger
         for (i, w) in wallets.enumerated() {
-            let distanceFromSelected = abs(i - index)
-            let delay = Double(distanceFromSelected) * staggerDelay
+            let delay = Double(abs(i - index)) * staggerDelay
             
             withAnimation(heroSpring.delay(delay)) {
                 if i == index {
@@ -428,22 +506,19 @@ struct WalletsView: View {
                     cardAnimationOpacities[w.id] = 1
                     cardAnimationScales[w.id] = 1
                 } else if i < index {
-                    let distanceUp = CGFloat(index - i)
-                    cardAnimationOffsets[w.id] = targetOffset - (distanceUp * 20)
+                    cardAnimationOffsets[w.id] = targetOffset - CGFloat(index - i) * 20
                     cardAnimationOpacities[w.id] = 0
                     cardAnimationScales[w.id] = 0.96
                 } else {
-                    let distanceDown = CGFloat(i - index)
-                    cardAnimationOffsets[w.id] = 120 + (distanceDown * 60)
+                    cardAnimationOffsets[w.id] = 120 + CGFloat(i - index) * 60
                     cardAnimationOpacities[w.id] = 0
                     cardAnimationScales[w.id] = 0.96
                 }
             }
         }
         
-        // Fase 3: Mostrar contenido de detalle (con Task cancelable)
         animationTask = Task { @MainActor in
-            try? await Task.sleep(for: AnimationTiming.phaseDelay)
+            try? await Task.sleep(for: Timing.phaseDelay)
             guard !Task.isCancelled else { return }
             
             withAnimation(secondarySpring) {
@@ -453,28 +528,22 @@ struct WalletsView: View {
         }
     }
     
-    // MARK: - Close Detail Animation
+    // MARK: - Close Detail
     
     private func closeDetail(withHaptic: Bool = false) {
-        // Cancelar animación anterior
         animationTask?.cancel()
         actionTask?.cancel()
         
-        if withHaptic {
-            Task { @MainActor in Constants.Haptic.light() }
-        }
+        if withHaptic { Constants.Haptic.light() }
         
-        // Fase 1: Ocultar contenido
         withAnimation(quickSpring) {
             showDetailContent = false
             dragOffset = 0
         }
         
-        // Fase 2: Restaurar tarjetas con stagger
         let totalCards = wallets.count
         for (i, wallet) in wallets.enumerated() {
-            let distanceFromSelected = selectedIndex.map { abs(i - $0) } ?? i
-            let delay = Double(totalCards - 1 - distanceFromSelected) * staggerDelay
+            let delay = Double(totalCards - 1 - (selectedIndex.map { abs(i - $0) } ?? i)) * staggerDelay
             
             withAnimation(heroSpring.delay(delay)) {
                 cardAnimationOffsets[wallet.id] = 0
@@ -483,9 +552,8 @@ struct WalletsView: View {
             }
         }
         
-        // Fase 3 y 4: Balance card + cleanup (con Task cancelable)
         animationTask = Task { @MainActor in
-            try? await Task.sleep(for: AnimationTiming.balanceCardDelay)
+            try? await Task.sleep(for: Timing.balanceCardDelay)
             guard !Task.isCancelled else { return }
             
             withAnimation(secondarySpring) {
@@ -493,7 +561,7 @@ struct WalletsView: View {
                 isShowingDetail = false
             }
             
-            try? await Task.sleep(for: AnimationTiming.cleanupDelay - AnimationTiming.balanceCardDelay)
+            try? await Task.sleep(for: Timing.cleanupDelay - Timing.balanceCardDelay)
             guard !Task.isCancelled else { return }
             
             selectedWalletID = nil
@@ -502,27 +570,24 @@ struct WalletsView: View {
     }
     
     private func closeDetailAndThen(_ action: @escaping () -> Void) {
-        // Cancelar acción anterior pendiente
         actionTask?.cancel()
-        
         closeDetail()
         
         actionTask = Task { @MainActor in
-            try? await Task.sleep(for: AnimationTiming.actionDelay)
+            try? await Task.sleep(for: Timing.actionDelay)
             guard !Task.isCancelled else { return }
             action()
         }
     }
     
-    // MARK: - Drag Gesture
+    // MARK: - Drag to Dismiss
     
     private var dragToDismissGesture: some Gesture {
         DragGesture(minimumDistance: 5)
             .onChanged { value in
-                if value.translation.height > 0 {
-                    let resistance = 1 - min(value.translation.height / 300, 0.6)
-                    dragOffset = value.translation.height * resistance
-                }
+                guard value.translation.height > 0 else { return }
+                let resistance = 1 - min(value.translation.height / 300, 0.6)
+                dragOffset = value.translation.height * resistance
             }
             .onEnded { value in
                 let velocity = value.predictedEndTranslation.height - value.translation.height
@@ -530,45 +595,28 @@ struct WalletsView: View {
                 if value.translation.height > 15 || velocity > 50 {
                     closeDetail(withHaptic: true)
                 } else {
-                    withAnimation(heroSpring) {
-                        dragOffset = 0
-                    }
+                    withAnimation(heroSpring) { dragOffset = 0 }
                 }
             }
     }
     
     // MARK: - Detail Content
     
-    private func detailContent(wallet: Wallet, geometry: GeometryProxy) -> some View {
+    private func detailContent(wallet: Wallet) -> some View {
         VStack(spacing: FSpacing.lg) {
             statsSection(wallet: wallet)
             transactionsSection(wallet: wallet)
         }
         .padding(.horizontal, cardHorizontalPadding)
-        .opacity(dragOffset > 30 ? max(0, 1 - (dragOffset / 100)) : 1)
+        .opacity(dragOffset > 30 ? max(0, 1 - dragOffset / 100) : 1)
     }
-    
-    // MARK: - Stats Section
     
     private func statsSection(wallet: Wallet) -> some View {
         HStack(spacing: FSpacing.md) {
-            StatCard(
-                title: "Balance",
-                value: wallet.formattedBalance,
-                icon: "creditcard.fill",
-                color: FColors.blue
-            )
-            
-            StatCard(
-                title: "Transacciones",
-                value: "0",
-                icon: "arrow.left.arrow.right",
-                color: FColors.purple
-            )
+            StatCard(title: "Balance", value: wallet.formattedBalance, icon: "creditcard.fill", color: FColors.blue)
+            StatCard(title: "Transacciones", value: "0", icon: "arrow.left.arrow.right", color: FColors.purple)
         }
     }
-    
-    // MARK: - Transactions Section
     
     private func transactionsSection(wallet: Wallet) -> some View {
         VStack(alignment: .leading, spacing: FSpacing.md) {
@@ -576,16 +624,11 @@ struct WalletsView: View {
                 Text("Últimas Transacciones")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(FColors.textPrimary)
-                
                 Spacer()
-                
-                Button("Ver todas") {
-                    // TODO: Navegar
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(FColors.brand)
+                Button("Ver todas") {}
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FColors.brand)
             }
-            
             transactionsPlaceholder
         }
     }
@@ -602,7 +645,6 @@ struct WalletsView: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(FColors.backgroundTertiary)
                             .frame(width: 130, height: 14)
-                        
                         RoundedRectangle(cornerRadius: 4)
                             .fill(FColors.backgroundTertiary)
                             .frame(width: 90, height: 11)
@@ -614,7 +656,6 @@ struct WalletsView: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(FColors.backgroundTertiary)
                             .frame(width: 65, height: 14)
-                        
                         Image(systemName: "chevron.right")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(FColors.textTertiary)
@@ -623,22 +664,18 @@ struct WalletsView: View {
                 .padding(.vertical, 12)
                 
                 if index < 4 {
-                    Divider()
-                        .padding(.leading, 56)
+                    Divider().padding(.leading, 56)
                 }
             }
         }
         .padding(FSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(colorScheme == .dark ? FColors.backgroundSecondary : Color.white)
+                .fill(colorScheme == .dark ? FColors.backgroundSecondary : .white)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04),
-                    lineWidth: 1
-                )
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04), lineWidth: 1)
         )
     }
     
@@ -650,7 +687,6 @@ struct WalletsView: View {
                 Text("Balance Total")
                     .font(.subheadline)
                     .foregroundStyle(FColors.textSecondary)
-                
                 Text(viewModel.formattedTotalBalance)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundStyle(FColors.textPrimary)
@@ -659,41 +695,9 @@ struct WalletsView: View {
             }
             
             HStack(spacing: FSpacing.xxl) {
-                VStack(spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .foregroundStyle(FColors.green)
-                        Text("Ingresos")
-                            .foregroundStyle(FColors.textSecondary)
-                    }
-                    .font(.caption)
-                    
-                    Text(viewModel.monthlyIncome.asCurrency())
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(FColors.textPrimary)
-                        .minimumScaleFactor(0.8)
-                        .lineLimit(1)
-                }
-                
-                Rectangle()
-                    .fill(FColors.separator)
-                    .frame(width: 1, height: 32)
-                
-                VStack(spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .foregroundStyle(FColors.red)
-                        Text("Gastos")
-                            .foregroundStyle(FColors.textSecondary)
-                    }
-                    .font(.caption)
-                    
-                    Text(viewModel.monthlyExpenses.asCurrency())
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(FColors.textPrimary)
-                        .minimumScaleFactor(0.8)
-                        .lineLimit(1)
-                }
+                balanceMetric(icon: "arrow.down.circle.fill", color: FColors.green, label: "Ingresos", value: viewModel.monthlyIncome)
+                Rectangle().fill(FColors.separator).frame(width: 1, height: 32)
+                balanceMetric(icon: "arrow.up.circle.fill", color: FColors.red, label: "Gastos", value: viewModel.monthlyExpenses)
             }
         }
         .padding(.vertical, FSpacing.lg)
@@ -701,52 +705,27 @@ struct WalletsView: View {
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(colorScheme == .dark ? FColors.backgroundSecondary : Color.white)
+                .fill(colorScheme == .dark ? FColors.backgroundSecondary : .white)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04),
-                    lineWidth: 1
-                )
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04), lineWidth: 1)
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Balance total \(viewModel.formattedTotalBalance), ingresos \(viewModel.monthlyIncome.asCurrency()), gastos \(viewModel.monthlyExpenses.asCurrency())")
     }
     
-    // MARK: - Context Menu
-    
-    @ViewBuilder
-    private func contextMenuContent(for wallet: Wallet) -> some View {
-        Button {
-            viewModel.presentEdit(wallet)
-        } label: {
-            Label("Editar", systemImage: "pencil")
-        }
-        
-        if !wallet.isDefault {
-            Button {
-                viewModel.setAsDefault(wallet)
-            } label: {
-                Label("Establecer como principal", systemImage: "star")
+    private func balanceMetric(icon: String, color: Color, label: String, value: Double) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).foregroundStyle(color)
+                Text(label).foregroundStyle(FColors.textSecondary)
             }
-        }
-        
-        Button {
-            viewModel.selectedWallet = wallet
-            viewModel.isBalanceAdjustmentPresented = true
-        } label: {
-            Label("Ajustar balance", systemImage: "plusminus.circle")
-        }
-        
-        Divider()
-        
-        if !wallet.isDefault {
-            Button(role: .destructive) {
-                viewModel.presentArchiveAlert(wallet)
-            } label: {
-                Label("Archivar", systemImage: "archivebox")
-            }
+            .font(.caption)
+            
+            Text(value.asCurrency())
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(FColors.textPrimary)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
         }
     }
     
@@ -760,7 +739,6 @@ struct WalletsView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(FColors.textTertiary)
                 .padding(.bottom, 8)
-                .accessibilityHidden(true)
             
             Text("Sin billeteras")
                 .font(.headline)
@@ -772,25 +750,18 @@ struct WalletsView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, FSpacing.xxxl)
             
-            Button {
-                viewModel.presentCreate()
-            } label: {
+            Button { viewModel.presentCreate() } label: {
                 Text("Crear ahora")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(FColors.textPrimary)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .stroke(FColors.border, lineWidth: 1)
-                    )
+                    .background(Capsule().stroke(FColors.border, lineWidth: 1))
             }
             .padding(.top, FSpacing.sm)
-            .accessibilityHint("Crea tu primera billetera")
             
             Spacer()
         }
-        .accessibilityElement(children: .contain)
     }
 }
 
@@ -810,7 +781,6 @@ private struct StatCard: View {
                 Image(systemName: icon)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(color)
-                
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(FColors.textSecondary)
@@ -826,17 +796,149 @@ private struct StatCard: View {
         .padding(FSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(colorScheme == .dark ? FColors.backgroundSecondary : Color.white)
+                .fill(colorScheme == .dark ? FColors.backgroundSecondary : .white)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04),
-                    lineWidth: 1
-                )
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04), lineWidth: 1)
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title): \(value)")
+    }
+}
+
+// MARK: - Archived Wallets Sheet
+
+struct ArchivedWalletsSheet: View {
+    @Bindable var viewModel: WalletsViewModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    
+    @Query(
+        filter: #Predicate<Wallet> { $0.isArchived },
+        sort: [SortDescriptor(\Wallet.updatedAt, order: .reverse)]
+    )
+    private var archivedWallets: [Wallet]
+    
+    @State private var walletToDelete: Wallet? = nil
+    @State private var showDeleteConfirmation = false
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if archivedWallets.isEmpty {
+                    emptyState
+                } else {
+                    walletsList
+                }
+            }
+            .navigationTitle("Archivadas")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") { dismiss() }
+                        .foregroundStyle(FColors.textPrimary)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.automatic)
+        .presentationBackground(.clear)
+        .presentationBackgroundInteraction(.automatic)
+        .confirmationDialog(
+            "Eliminar permanentemente",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Eliminar", role: .destructive) {
+                if let wallet = walletToDelete {
+                    Constants.Haptic.warning()
+                    viewModel.deleteWallet(wallet)
+                    walletToDelete = nil
+                }
+            }
+            Button("Cancelar", role: .cancel) {
+                walletToDelete = nil
+            }
+        } message: {
+            Text("Esta acción no se puede deshacer.")
+        }
+    }
+    
+    private var emptyState: some View {
+        VStack(spacing: FSpacing.md) {
+            Spacer()
+            
+            Image(systemName: "archivebox")
+                .font(.system(size: 48))
+                .foregroundStyle(FColors.textTertiary)
+            
+            Text("Nada archivado")
+                .font(.headline)
+                .foregroundStyle(FColors.textPrimary)
+            
+            Text("Las billeteras que archives aparecerán aquí.")
+                .font(.subheadline)
+                .foregroundStyle(FColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, FSpacing.xxxl)
+            
+            Spacer()
+        }
+    }
+    
+    private var walletsList: some View {
+        List {
+            ForEach(archivedWallets) { wallet in
+                WalletCardCompact(wallet: wallet)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: FSpacing.lg, bottom: 6, trailing: FSpacing.lg))
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        // Eliminar (rojo) - full swipe activa confirmación
+                        Button(role: .destructive) {
+                            walletToDelete = wallet
+                            showDeleteConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .tint(Color.red)
+                        
+                        // Restaurar (brand color)
+                        Button {
+                            Constants.Haptic.success()
+                            viewModel.restoreWallet(wallet)
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward")
+                        }
+                        .tint(FColors.brand)
+                    }
+                    .contextMenu {
+                        Button {
+                            Constants.Haptic.success()
+                            viewModel.restoreWallet(wallet)
+                        } label: {
+                            Label("Restaurar", systemImage: "arrow.uturn.backward")
+                        }
+                        
+                        Divider()
+                        
+                        Button(role: .destructive) {
+                            walletToDelete = wallet
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Eliminar", systemImage: "trash")
+                        }
+                    }
+            }
+            .onDelete { indexSet in
+                // Full swipe delete con confirmación
+                if let index = indexSet.first {
+                    walletToDelete = archivedWallets[index]
+                    showDeleteConfirmation = true
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 }
 
