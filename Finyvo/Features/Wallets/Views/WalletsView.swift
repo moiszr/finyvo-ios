@@ -3,12 +3,10 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/25/25.
-//  Updated on 01/11/26 - Production-ready refactor:
-//    - Drag & drop reordering (Apple Wallet style)
-//    - Front card (last in sortOrder) = default wallet
-//    - Swipe actions + context menu for archived wallets
-//    - Restored wallets go to back (preserve current default)
-//    - Optimized animations and memory management
+//  Updated on 01/14/26 - Simplified default wallet handling:
+//    - Removed ensureFrontWalletIsDefault (handled by ViewModel)
+//    - Simplified animation states
+//    - Clean drag & drop that respects ViewModel's default logic
 //
 
 import SwiftUI
@@ -157,11 +155,9 @@ struct WalletsView: View {
         .task {
             viewModel.configure(with: modelContext)
             syncAnimationStates()
-            ensureFrontWalletIsDefault()
         }
         .onChange(of: walletIDs) { oldIDs, newIDs in
             syncAnimationStates(oldIDs: oldIDs, newIDs: newIDs)
-            ensureFrontWalletIsDefault()
         }
         .onDisappear {
             animationTask?.cancel()
@@ -175,16 +171,9 @@ struct WalletsView: View {
     private var editorSheet: some View {
         if viewModel.editorMode == .create {
             WalletCreationFlow(viewModel: viewModel)
-        } else {
-            WalletEditorSheet(viewModel: viewModel, mode: viewModel.editorMode)
+        } else if let wallet = viewModel.editorMode.wallet {
+            WalletEditView(viewModel: viewModel, wallet: wallet)
         }
-    }
-    
-    // MARK: - Ensure Front Wallet is Default
-    
-    private func ensureFrontWalletIsDefault() {
-        guard let front = frontWallet, !front.isDefault else { return }
-        viewModel.setAsDefault(front)
     }
     
     // MARK: - Sync Animation States
@@ -281,7 +270,7 @@ struct WalletsView: View {
             
             if !wallet.isDefault {
                 Button {
-                    moveWalletToFront(wallet)
+                    viewModel.setAsDefault(wallet)
                     closeDetail()
                 } label: {
                     Label("Hacer principal", systemImage: "star")
@@ -468,18 +457,6 @@ struct WalletsView: View {
     private func calculateNewIndex(from index: Int, translation: CGFloat) -> Int {
         let movement = Int(round(translation / visibleStackPortion))
         return max(0, min(wallets.count - 1, index + movement))
-    }
-    
-    // MARK: - Move Wallet to Front
-    
-    private func moveWalletToFront(_ wallet: Wallet) {
-        guard let currentIndex = wallets.firstIndex(where: { $0.id == wallet.id }) else { return }
-        let lastIndex = wallets.count - 1
-        
-        if currentIndex != lastIndex {
-            viewModel.moveWallet(from: IndexSet(integer: currentIndex), to: lastIndex + 1)
-            Constants.Haptic.success()
-        }
     }
     
     // MARK: - Select Wallet
@@ -893,7 +870,6 @@ struct ArchivedWalletsSheet: View {
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 6, leading: FSpacing.lg, bottom: 6, trailing: FSpacing.lg))
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        // Eliminar (rojo) - full swipe activa confirmación
                         Button(role: .destructive) {
                             walletToDelete = wallet
                             showDeleteConfirmation = true
@@ -902,7 +878,6 @@ struct ArchivedWalletsSheet: View {
                         }
                         .tint(Color.red)
                         
-                        // Restaurar (brand color)
                         Button {
                             Constants.Haptic.success()
                             viewModel.restoreWallet(wallet)
@@ -930,7 +905,6 @@ struct ArchivedWalletsSheet: View {
                     }
             }
             .onDelete { indexSet in
-                // Full swipe delete con confirmación
                 if let index = indexSet.first {
                     walletToDelete = archivedWallets[index]
                     showDeleteConfirmation = true
@@ -949,12 +923,4 @@ struct ArchivedWalletsSheet: View {
         WalletsView()
     }
     .modelContainer(for: Wallet.self, inMemory: true)
-}
-
-#Preview("Dark Mode") {
-    NavigationStack {
-        WalletsView()
-    }
-    .modelContainer(for: Wallet.self, inMemory: true)
-    .preferredColorScheme(.dark)
 }

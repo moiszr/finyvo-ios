@@ -3,11 +3,11 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/24/25.
-//  Updated on 01/11/26 - Production-ready:
-//    - Front wallet (highest sortOrder) = default wallet
-//    - Restored wallets go to back (lowest sortOrder)
-//    - Optimized reordering with auto-default sync
-//    - Clean task cancellation patterns
+//  Updated on 01/14/26 - Fixed default wallet bugs:
+//    - createWallet respects isDefault parameter
+//    - New non-default wallets go to back (lowest sortOrder)
+//    - setAsDefault properly clears all other defaults
+//    - Drag & drop maintains single default invariant
 //
 
 import SwiftUI
@@ -71,8 +71,8 @@ final class WalletsViewModel {
         totalBalance.asCurrency()
     }
     
-    var monthlyIncome: Double { 0 } // TODO: Calculate from transactions
-    var monthlyExpenses: Double { 0 } // TODO: Calculate from transactions
+    var monthlyIncome: Double { 0 }
+    var monthlyExpenses: Double { 0 }
     var monthlyNetBalance: Double { monthlyIncome - monthlyExpenses }
     
     // MARK: - Initialization
@@ -112,6 +112,9 @@ final class WalletsViewModel {
             
             if AppConfig.isDebugMode {
                 print("✅ WalletsViewModel: Loaded \(wallets.count) active, \(archivedWallets.count) archived")
+                for (i, w) in wallets.enumerated() {
+                    print("   [\(i)] \(w.name) - sortOrder: \(w.sortOrder), isDefault: \(w.isDefault)")
+                }
             }
         } catch {
             self.error = .loadFailed
@@ -125,21 +128,63 @@ final class WalletsViewModel {
     private func normalizeDefaultWallet() {
         guard !wallets.isEmpty else { return }
         
-        // Clear all defaults
-        for wallet in wallets where wallet.isDefault {
-            wallet.isDefault = false
-            wallet.updatedAt = .now
+        var hasDefault = false
+        
+        // First pass: check current state
+        for wallet in wallets {
+            if wallet.isDefault {
+                if hasDefault {
+                    // Multiple defaults found - clear this one
+                    wallet.isDefault = false
+                    wallet.updatedAt = .now
+                } else {
+                    hasDefault = true
+                }
+            }
         }
         
-        // Set last (front) as default
-        wallets.last?.isDefault = true
-        wallets.last?.updatedAt = .now
+        // If no default exists, make the last (front) wallet default
+        if !hasDefault {
+            wallets.last?.isDefault = true
+            wallets.last?.updatedAt = .now
+        }
+        
+        // If the default is not the last wallet, move it to front
+        if let defaultWallet = wallets.first(where: { $0.isDefault }),
+           defaultWallet.id != wallets.last?.id {
+            // The current default is not at front - fix sortOrders
+            moveWalletToFront(defaultWallet)
+            return
+        }
         
         save()
         
         if AppConfig.isDebugMode {
             print("✅ WalletsViewModel: Default normalized to '\(wallets.last?.name ?? "nil")'")
         }
+    }
+    
+    /// Internal method to move a wallet to front position
+    private func moveWalletToFront(_ wallet: Wallet) {
+        guard let currentIndex = wallets.firstIndex(where: { $0.id == wallet.id }) else { return }
+        
+        var reorderedWallets = wallets
+        let movedWallet = reorderedWallets.remove(at: currentIndex)
+        reorderedWallets.append(movedWallet)
+        
+        for (index, w) in reorderedWallets.enumerated() {
+            w.sortOrder = index
+            w.updatedAt = .now
+        }
+        
+        // Clear ALL defaults and set only the front one
+        for w in reorderedWallets {
+            w.isDefault = false
+        }
+        reorderedWallets.last?.isDefault = true
+        
+        _ = save()
+        loadWallets()
     }
     
     // MARK: - CRUD Operations
@@ -151,7 +196,9 @@ final class WalletsViewModel {
         case contextNotConfigured
     }
     
-    /// Creates a new wallet at the front (becomes default)
+    /// Creates a new wallet
+    /// - If isDefault == true: wallet goes to FRONT and becomes the new default
+    /// - If isDefault == false: wallet goes to BACK, preserving current default
     @discardableResult
     func createWallet(
         name: String,
@@ -174,7 +221,24 @@ final class WalletsViewModel {
             return .limitReached
         }
         
-        clearDefaultStatus()
+        let sortOrder: Int
+        let shouldBeDefault: Bool
+        
+        if wallets.isEmpty {
+            // First wallet is always default
+            sortOrder = 0
+            shouldBeDefault = true
+        } else if isDefault {
+            // New default wallet goes to FRONT (highest sortOrder)
+            clearDefaultStatus()
+            sortOrder = nextSortOrder()
+            shouldBeDefault = true
+        } else {
+            // Non-default wallet goes to BACK (shift all existing up)
+            shiftAllSortOrdersUp()
+            sortOrder = 0
+            shouldBeDefault = false
+        }
         
         let wallet = Wallet(
             name: name,
@@ -183,8 +247,8 @@ final class WalletsViewModel {
             color: color,
             currencyCode: currencyCode,
             initialBalance: initialBalance,
-            isDefault: true, // New wallet goes to front = default
-            sortOrder: nextSortOrder(),
+            isDefault: shouldBeDefault,
+            sortOrder: sortOrder,
             paymentReminderDay: paymentReminderDay,
             notes: notes,
             lastFourDigits: lastFourDigits
@@ -197,7 +261,7 @@ final class WalletsViewModel {
             loadWallets()
             
             if AppConfig.isDebugMode {
-                print("✅ WalletsViewModel: Created '\(name)' at front")
+                print("✅ WalletsViewModel: Created '\(name)' at \(isDefault ? "front" : "back"), isDefault: \(shouldBeDefault)")
             }
             
             return .success(walletID: wallet.id)
@@ -227,14 +291,15 @@ final class WalletsViewModel {
         
         let lastIndex = wallets.count - 1
         
+        // Clear ALL existing defaults first
+        clearDefaultStatus()
+        
         if currentIndex == lastIndex {
-            // Already at front, just ensure isDefault flag
-            if !wallet.isDefault {
-                clearDefaultStatus()
-                wallet.isDefault = true
-                wallet.updatedAt = .now
-                return save()
-            }
+            // Already at front, just set the flag
+            wallet.isDefault = true
+            wallet.updatedAt = .now
+            _ = save()
+            loadWallets()
             return true
         }
         
@@ -257,8 +322,8 @@ final class WalletsViewModel {
     
     @discardableResult
     func archiveWallet(_ wallet: Wallet) -> Bool {
-        // Cannot archive the front (default) wallet
-        guard wallet.id != wallets.last?.id else {
+        // Cannot archive the default wallet
+        guard !wallet.isDefault else {
             error = .cannotArchiveDefault
             return false
         }
@@ -269,7 +334,6 @@ final class WalletsViewModel {
         
         if save() {
             loadWallets()
-            normalizeDefaultWallet()
             return true
         }
         return false
@@ -286,7 +350,7 @@ final class WalletsViewModel {
         
         // Place restored wallet at the back (sortOrder 0)
         wallet.isArchived = false
-        wallet.isDefault = false // NOT default - keep current default
+        wallet.isDefault = false
         wallet.sortOrder = 0
         wallet.updatedAt = .now
         
@@ -301,11 +365,18 @@ final class WalletsViewModel {
     func deleteWallet(_ wallet: Wallet) -> Bool {
         guard let context = modelContext else { return false }
         
+        let wasDefault = wallet.isDefault
+        
         context.delete(wallet)
         
         if save() {
             loadWallets()
-            normalizeDefaultWallet()
+            
+            // If we deleted the default, normalize
+            if wasDefault {
+                normalizeDefaultWallet()
+            }
+            
             return true
         }
         return false
@@ -323,8 +394,10 @@ final class WalletsViewModel {
             wallet.updatedAt = .now
         }
         
-        // Front wallet is default
-        clearDefaultStatus()
+        // Clear ALL defaults and set the front wallet as default
+        for wallet in reorderedWallets {
+            wallet.isDefault = false
+        }
         reorderedWallets.last?.isDefault = true
         
         _ = save()
@@ -440,6 +513,13 @@ final class WalletsViewModel {
             wallet.updatedAt = .now
         }
     }
+    
+    private func shiftAllSortOrdersUp() {
+        for wallet in wallets {
+            wallet.sortOrder += 1
+            wallet.updatedAt = .now
+        }
+    }
 }
 
 // MARK: - Wallet Error
@@ -472,7 +552,7 @@ enum WalletError: Error, LocalizedError, Identifiable, Sendable {
     var recoverySuggestion: String? {
         switch self {
         case .limitReached: return "Archiva algunas billeteras que no uses"
-        case .cannotArchiveDefault: return "Primero mueve otra billetera al frente"
+        case .cannotArchiveDefault: return "Primero haz otra billetera la principal"
         case .saveFailed, .loadFailed: return "Intenta de nuevo o reinicia la app"
         default: return nil
         }
