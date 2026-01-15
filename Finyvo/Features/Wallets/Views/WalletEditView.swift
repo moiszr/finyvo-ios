@@ -157,7 +157,6 @@ struct WalletEditView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationBackground(FColors.background)
-        .presentationCornerRadius(32)
         .sheet(isPresented: $showStylePicker) {
             StylePickerSheet(
                 selectedIcon: $editor.icon,
@@ -231,23 +230,16 @@ struct WalletEditView: View {
             )
 
             // FIXED: Default toggle with proper logic
+            // - If wallet WAS already default: can't toggle off (disabled)
+            // - If wallet was NOT default: can freely toggle on/off
             ToggleSectionCard(
                 icon: "star.fill",
                 iconColor: FColors.yellow,
                 title: "Billetera principal",
                 subtitle: defaultSubtitle,
                 subtitleAnimation: .interpolate,
-                isOn: Binding(
-                    get: { editor.isDefault },
-                    set: { newValue in
-                        // Only allow enabling if not already default
-                        // Cannot disable - there must always be a default
-                        if newValue && !wallet.isDefault {
-                            editor.isDefault = true
-                        }
-                    }
-                ),
-                isDisabled: wallet.isDefault // Can't toggle off current default
+                isOn: $editor.isDefault,
+                isDisabled: wallet.isDefault // Only disable if it WAS already default
             )
 
             EditSectionCard(
@@ -1466,7 +1458,6 @@ private struct StyleIconGrid: View {
             .onAppear { calculatedHeight = gridHeight }
             .onChange(of: geometry.size.width) { _, _ in calculatedHeight = gridHeight }
         }
-        .frame(height: calculatedHeight)
     }
 }
 

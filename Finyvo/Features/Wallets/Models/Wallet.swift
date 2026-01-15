@@ -267,20 +267,31 @@ enum WalletType: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
     
-    /// Color sugerido por defecto
+    /// Color sugerido por defecto (sin repeticiones)
     var defaultColor: FCardColor {
         switch self {
-        case .cash:          return .green
-        case .checking:      return .blue
-        case .savings:       return .teal
-        case .creditCard:    return .purple
-        case .debitCard:     return .blue
-        case .digitalWallet: return .orange
-        case .investment:    return .teal
-        case .crypto:        return .yellow
-        case .other:         return .gray
+
+        case .cash:
+            return .green        // 💵 efectivo = verde
+        case .checking:
+            return .blue         // 🏦 cuenta bancaria
+        case .savings:
+            return .purple      // 🎯 metas / ahorro
+        case .creditCard:
+            return .red         // 💳 deuda / alerta
+        case .debitCard:
+            return .teal        // 🪪 débito moderno
+        case .digitalWallet:
+            return .orange      // 📱 wallets digitales
+        case .investment:
+            return .pink        // 📈 inversión (premium)
+        case .crypto:
+            return .yellow      // ⚡ riesgo / volatilidad
+        case .other:
+            return .gray        // ⚪ neutro
         }
     }
+
     
     /// `true` si este tipo puede tener recordatorio de pago
     var supportsPaymentReminder: Bool {
@@ -394,7 +405,7 @@ extension Wallet {
             Wallet(
                 name: "Banco Principal",
                 type: .checking,
-                color: .blue,
+                color: .white,
                 sortOrder: 1
             ),
             Wallet(

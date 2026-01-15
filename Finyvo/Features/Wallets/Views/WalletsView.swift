@@ -811,8 +811,13 @@ struct ArchivedWalletsSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cerrar") { dismiss() }
-                        .foregroundStyle(FColors.textPrimary)
+                    Button { dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(FColors.textPrimary)
+                        }
+                        .accessibilityLabel("Cerrar")
                 }
             }
         }

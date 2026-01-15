@@ -3,12 +3,10 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/29/25.
-//  Updated on 01/09/26 - Production optimizations:
-//    - Centralized timing constants
-//    - Removed DispatchQueue in favor of pure Task
-//    - Haptic feedback after confirmed success
-//    - Robust task cancellation (focusTask + scrollTask)
-//    - Unified hideKeyboard via View extension
+//  Updated on 01/15/26 - Fixed default wallet logic:
+//    - First wallet is ALWAYS default (toggle disabled)
+//    - Non-default wallets go to BACK of stack
+//    - Dynamic subtitle reflects current state
 //
 
 import SwiftUI
@@ -63,9 +61,20 @@ struct WalletCreationFlow: View {
     @State private var focusTask: Task<Void, Never>?
     @State private var isSaving: Bool = false
     
+    /// True if this will be the first wallet (always default)
+    private var isFirstWallet: Bool { viewModel.isEmpty }
+    
+    // FIXED: Initialize with correct default state
     init(viewModel: WalletsViewModel) {
         self.viewModel = viewModel
-        _editor = State(initialValue: WalletEditorViewModel(mode: .create))
+        let newEditor = WalletEditorViewModel(mode: .create)
+        
+        // First wallet is ALWAYS default
+        if viewModel.isEmpty {
+            newEditor.isDefault = true
+        }
+        
+        _editor = State(initialValue: newEditor)
     }
     
     private var previewWallet: Wallet {
@@ -214,7 +223,12 @@ struct WalletCreationFlow: View {
         case .currency:
             CurrencyStepView(editor: editor)
         case .review:
-            ReviewStepView(editor: editor, isBalanceFocused: $isReviewBalanceFocused, isLastFourFocused: $isReviewLastFourFocused)
+            ReviewStepView(
+                editor: editor,
+                isFirstWallet: isFirstWallet,
+                isBalanceFocused: $isReviewBalanceFocused,
+                isLastFourFocused: $isReviewLastFourFocused
+            )
         }
     }
     
@@ -247,6 +261,7 @@ struct WalletCreationFlow: View {
         if editor.hasChanges { showDiscardAlert = true } else { dismiss() }
     }
     
+    // FIXED: Properly handle first wallet and default logic
     private func createWallet() {
         guard let data = editor.buildNewWalletData() else {
             Constants.Haptic.error()
@@ -256,11 +271,20 @@ struct WalletCreationFlow: View {
         isSaving = true
         
         Task { @MainActor in
+            // First wallet is ALWAYS default, regardless of toggle
+            let shouldBeDefault = isFirstWallet || data.isDefault
+            
             let result = viewModel.createWallet(
-                name: data.name, type: data.type, icon: data.icon, color: data.color,
-                currencyCode: data.currencyCode, initialBalance: data.initialBalance,
-                isDefault: data.isDefault, paymentReminderDay: data.paymentReminderDay,
-                notes: data.notes, lastFourDigits: data.lastFourDigits
+                name: data.name,
+                type: data.type,
+                icon: data.icon,
+                color: data.color,
+                currencyCode: data.currencyCode,
+                initialBalance: data.initialBalance,
+                isDefault: shouldBeDefault,
+                paymentReminderDay: data.paymentReminderDay,
+                notes: data.notes,
+                lastFourDigits: data.lastFourDigits
             )
             
             isSaving = false
@@ -863,6 +887,7 @@ private enum ReviewField: Hashable {
 
 private struct ReviewStepView: View {
     @Bindable var editor: WalletEditorViewModel
+    let isFirstWallet: Bool
     
     @Binding var isBalanceFocused: Bool
     @Binding var isLastFourFocused: Bool
@@ -870,7 +895,6 @@ private struct ReviewStepView: View {
     @State private var balanceFocusToken: Int = 0
     @State private var lastFourFocusToken: Int = 0
     
-    // Tasks separados por campo para evitar race conditions
     @State private var balanceFocusTask: Task<Void, Never>?
     @State private var lastFourFocusTask: Task<Void, Never>?
     
@@ -957,7 +981,7 @@ private struct ReviewStepView: View {
                                     }
                                 }
 
-                                // Default
+                                // Default toggle with isFirstWallet logic
                                 ReviewCard {
                                     HStack {
                                         ReviewIconLabel(
@@ -967,9 +991,17 @@ private struct ReviewStepView: View {
                                             subtitle: "Usar por defecto"
                                         )
                                         Spacer()
-                                        Toggle("", isOn: $editor.isDefault)
-                                            .labelsHidden()
-                                            .tint(FColors.brand)
+                                        Toggle("", isOn: Binding(
+                                            get: { editor.isDefault || isFirstWallet },
+                                            set: { newValue in
+                                                if !isFirstWallet {
+                                                    editor.isDefault = newValue
+                                                }
+                                            }
+                                        ))
+                                        .labelsHidden()
+                                        .tint(FColors.brand)
+                                        .disabled(isFirstWallet)
                                     }
                                 }
 
@@ -1059,7 +1091,6 @@ private struct ReviewStepView: View {
                 .presentationDragIndicator(.visible)
         }
         .onDisappear {
-            // Cancelar todos los tasks al salir de la vista
             cancelAllFocusTasks()
             cancelScrollTask()
         }
@@ -1081,11 +1112,8 @@ private struct ReviewStepView: View {
     
     private func toggleCard(_ card: ReviewField, proxy: ScrollViewProxy) {
         Constants.Haptic.light()
-
-        // Scroll siempre se cancela (evita peleas)
         cancelScrollTask()
 
-        // ===== COLAPSAR MISMO CARD =====
         if expandedCard == card {
             cancelAllFocusTasks()
             switch card {
@@ -1098,13 +1126,11 @@ private struct ReviewStepView: View {
             }
 
             hideKeyboard()
-
             withAnimation(Constants.Animation.cardSpring) { expandedCard = nil }
             scrollToPreviewTop(using: proxy, onlyIfCollapsed: card, nudge: false)
             return
         }
 
-        // ===== CAMBIAR A OTRO CARD =====
         if expandedCard != nil {
             cancelAllFocusTasks()
             isBalanceFocused = false
@@ -1112,12 +1138,10 @@ private struct ReviewStepView: View {
             hideKeyboard()
         }
 
-        // ===== EXPANDIR =====
         withAnimation(Constants.Animation.cardSpring) {
             expandedCard = card
         }
 
-        // Pide focus siempre que expandes
         switch card {
         case .balance:
             balanceFocusToken += 1
@@ -1129,7 +1153,6 @@ private struct ReviewStepView: View {
             isBalanceFocused = false
         }
 
-        // Scroll al target con doble nudge
         let target = scrollTargetID(for: card)
 
         scrollTask = Task { @MainActor in
@@ -1151,7 +1174,6 @@ private struct ReviewStepView: View {
         }
     }
 
-    
     private func scrollToPreviewTop(
         using proxy: ScrollViewProxy,
         onlyIfCollapsed expectedCard: ReviewField? = nil,
@@ -1160,12 +1182,10 @@ private struct ReviewStepView: View {
         cancelScrollTask()
 
         scrollTask = Task { @MainActor in
-            // Pequeño delay para que la animación de colapso/layout asiente
             try? await Task.sleep(for: Constants.Timing.scrollNudgeDelay)
             guard !Task.isCancelled else { return }
 
             if let expectedCard {
-                // Solo scrollea si ya NO está expandido ese card
                 guard expandedCard != expectedCard else { return }
             }
 
@@ -1175,7 +1195,6 @@ private struct ReviewStepView: View {
 
             guard nudge else { return }
 
-            // Nudge extra solo cuando vale la pena
             try? await Task.sleep(for: .milliseconds(160))
             guard !Task.isCancelled else { return }
 
@@ -1190,13 +1209,11 @@ private struct ReviewStepView: View {
     }
     
     private func dismissKeyboardAndCollapse(proxy: ScrollViewProxy) {
-        // Cancela todo antes de cambiar estado
         cancelAllFocusTasks()
         cancelScrollTask()
 
         let collapsing = expandedCard
 
-        // Persist flags antes de cerrar
         if expandedCard == .balance {
             editor.balanceEnabled = !editor.initialBalanceString.isEmpty && editor.initialBalanceString != "0"
         }
@@ -1489,7 +1506,7 @@ private struct ReviewIconLabel: View {
                     .font(.caption)
                     .foregroundStyle(FColors.textSecondary)
                     .lineLimit(1)
-                    .contentTransition(.numericText())
+                    .contentTransition(.interpolate)
                     .animation(Constants.Animation.numericTransition, value: subtitle)
             }
         }
