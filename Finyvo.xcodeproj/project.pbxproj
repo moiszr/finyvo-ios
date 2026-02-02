@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		574A4E162F2BF5CF009EFBDB /* FinyvoIconIOS.icon in Resources */ = {isa = PBXBuildFile; fileRef = 574A4E152F2BF5CF009EFBDB /* FinyvoIconIOS.icon */; };
 		57C17A392EE4D22C00641772 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 57C17A382EE4D22C00641772 /* Lottie */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		574A4E152F2BF5CF009EFBDB /* FinyvoIconIOS.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = FinyvoIconIOS.icon; sourceTree = "<group>"; };
 		57C179E32EE3C6D100641772 /* Finyvo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Finyvo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		57C179F02EE3C6D200641772 /* FinyvoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinyvoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57C179FA2EE3C6D200641772 /* FinyvoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinyvoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -84,6 +86,7 @@
 				57C179F32EE3C6D200641772 /* FinyvoTests */,
 				57C179FD2EE3C6D200641772 /* FinyvoUITests */,
 				57C179E42EE3C6D100641772 /* Products */,
+				574A4E152F2BF5CF009EFBDB /* FinyvoIconIOS.icon */,
 			);
 			sourceTree = "<group>";
 		};
@@ -222,6 +225,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				574A4E162F2BF5CF009EFBDB /* FinyvoIconIOS.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -408,7 +412,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphoneos*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = F53CRLJKCH;
@@ -443,7 +449,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphoneos*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = F53CRLJKCH;
