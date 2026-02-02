@@ -290,6 +290,7 @@ struct WalletsView: View {
                     closeDetailAndThen { viewModel.presentArchiveAlert(wallet) }
                 } label: {
                     Label("Archivar", systemImage: "archivebox")
+                        .tint(Color.red)
                 }
             }
         } label: {

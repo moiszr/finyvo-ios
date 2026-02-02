@@ -22,7 +22,7 @@ struct FinyvoApp: App {
             Category.self,
             Tag.self,          // ← AGREGADO: Modelo de etiquetas
             Wallet.self,    // ← Agregar cuando crees el modelo
-            // Transaction.self, // ← Agregar cuando crees el modelo
+            Transaction.self, // ← Agregar cuando crees el modelo 
         ])
         
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
@@ -40,6 +40,7 @@ struct FinyvoApp: App {
                 .environment(appState)
                 .modelContainer(sharedModelContainer)
                 .environment(\.locale, Locale(identifier: AppConfig.Defaults.localeIdentifier))
+                //.preferredColorScheme(.light)
         }
     }
 }

@@ -441,16 +441,6 @@ private struct ErrorBanner: View {
     }
 }
 
-// MARK: - Helper: Scale Button Style
-
-private struct ScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
-    }
-}
-
 // MARK: - Preview
 
 #Preview {

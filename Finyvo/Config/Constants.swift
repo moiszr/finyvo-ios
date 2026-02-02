@@ -4,6 +4,7 @@
 //
 //  Created by Moises Núñez on 12/24/25.
 //  Updated on 01/09/26 - Centralized timing constants
+//  Updated on 01/17/26 - Added shortMonthYear format
 //  Constantes globales de la aplicación.
 //
 
@@ -187,5 +188,16 @@ enum Constants {
         
         /// Monto válido (con decimales opcionales)
         static let amount = "^[0-9]+(\\.[0-9]{1,2})?$"
+    }
+}
+
+// MARK: - Scale Button Style
+
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
     }
 }

@@ -3,7 +3,7 @@
 //  Finyvo
 //
 //  Created by Moises Núñez on 12/5/25.
-//  Updated to support Wallets and other secondary sections.
+//  Updated: Transacciones como tab principal, Presupuesto al menú secundario
 //
 
 import SwiftUI
@@ -21,7 +21,6 @@ struct AppRouter: View {
             } else if !appState.hasCompletedOnboarding {
                 OnboardingView()
             } else {
-                // TODO: cuando tengas AuthView real, usarla aquí si !isAuthenticated
                 MainTabView()
             }
         }
@@ -54,14 +53,14 @@ private struct LoadingView: View {
 
 private enum TabSelection: Hashable {
     case home
-    case budget
+    case transactions
     case reports
     case more
     case search
     
     var isPrimaryTab: Bool {
         switch self {
-        case .home, .budget, .reports:
+        case .home, .transactions, .reports:
             return true
         case .more, .search:
             return false
@@ -71,7 +70,7 @@ private enum TabSelection: Hashable {
     var title: String {
         switch self {
         case .home: "Inicio"
-        case .budget: "Presupuesto"
+        case .transactions: "Transacciones"
         case .reports: "Reportes"
         case .more: "Más"
         case .search: "Buscar"
@@ -81,7 +80,7 @@ private enum TabSelection: Hashable {
     var icon: String {
         switch self {
         case .home: "house.fill"
-        case .budget: "target"
+        case .transactions: "arrow.up.arrow.down"
         case .reports: "chart.bar.fill"
         case .more: "chevron.up.chevron.down"
         case .search: "magnifyingglass"
@@ -92,6 +91,7 @@ private enum TabSelection: Hashable {
 // MARK: - Secondary Section
 
 private enum SecondarySection: String, CaseIterable, Identifiable {
+    case budget
     case goals
     case categories
     case wallets
@@ -104,6 +104,7 @@ private enum SecondarySection: String, CaseIterable, Identifiable {
     
     var title: String {
         switch self {
+        case .budget: "Presupuesto"
         case .goals: "Metas"
         case .categories: "Categorías"
         case .wallets: "Billeteras"
@@ -116,6 +117,7 @@ private enum SecondarySection: String, CaseIterable, Identifiable {
     
     var icon: String {
         switch self {
+        case .budget: "target"
         case .goals: "scope"
         case .categories: "square.grid.2x2.fill"
         case .wallets: "wallet.bifold.fill"
@@ -126,9 +128,9 @@ private enum SecondarySection: String, CaseIterable, Identifiable {
         }
     }
     
-    /// Secciones principales (features)
+    /// Secciones principales (features) - Presupuesto incluido aquí
     static var mainFeatures: [SecondarySection] {
-        [.goals, .categories, .wallets, .subscriptions]
+        [.budget, .goals, .categories, .wallets, .subscriptions]
     }
     
     /// Secciones de utilidad
@@ -192,11 +194,13 @@ private struct MainTabView: View {
                         .accessibilityLabel(TabSelection.home.title)
                 }
 
-                Tab(value: TabSelection.budget) {
-                    PlaceholderView(title: TabSelection.budget.title, icon: TabSelection.budget.icon)
+                Tab(value: TabSelection.transactions) {
+                    NavigationStack {
+                        TransactionsView()
+                    }
                 } label: {
-                    Image(systemName: TabSelection.budget.icon)
-                        .accessibilityLabel(TabSelection.budget.title)
+                    Image(systemName: TabSelection.transactions.icon)
+                        .accessibilityLabel(TabSelection.transactions.title)
                 }
 
                 Tab(value: TabSelection.reports) {
@@ -219,8 +223,8 @@ private struct MainTabView: View {
                     Label(TabSelection.search.title, systemImage: TabSelection.search.icon)
                 }
             }
-            .tint(.primary)                      // ✅ blanco/negro automático (light/dark)
-            .symbolRenderingMode(.monochrome)    // ✅ todos los SF Symbols en monocromo
+            .tint(.primary)
+            .symbolRenderingMode(.monochrome)
             .blur(radius: isMoreMenuPresented ? 18 : 0, opaque: true)
             .animation(.easeOut(duration: 0.28), value: isMoreMenuPresented)
             .allowsHitTesting(!isMoreMenuPresented)
@@ -239,11 +243,14 @@ private struct MainTabView: View {
     
     // MARK: - Secondary Section View
     
-    /// Retorna la vista correcta según la sección secundaria activa
     @ViewBuilder
     private var secondarySectionView: some View {
         if let section = activeSecondarySection {
             switch section {
+            case .budget:
+                NavigationStack {
+                    PlaceholderView(title: section.title, icon: section.icon)
+                }
             case .categories:
                 NavigationStack {
                     CategoriesView()
@@ -283,31 +290,23 @@ private struct MainTabView: View {
     private func handleTabSelection(_ newValue: TabSelection) {
         switch newValue {
         case .more:
-            // 1. Si venimos desde el buscador y HAY una sección secundaria activa
-            //    → volvemos a esa sección sin abrir el menú.
             if currentTab == .search, activeSecondarySection != nil {
                 isMoreMenuPresented = false
                 currentTab = .more
                 return
             }
-            
-            // 2. En cualquier otro caso, el tab "Más" actúa como disparador del overlay.
             isMoreMenuPresented = true
 
         case .search:
-            // Vamos al tab de búsqueda, pero NO borramos la sección secundaria activa
-            // para que el icono del tab "Más" siga reflejando de dónde venimos.
             currentTab = .search
 
         default:
-            // Cualquier tab principal limpia la sección secundaria.
             activeSecondarySection = nil
             isMoreMenuPresented = false
             currentTab = newValue
         }
     }
 
-    
     private func handleMenuSelection(_ item: ActiveMenuItem) {
         switch item {
         case .tab(let tab):
@@ -375,7 +374,7 @@ private struct MoreMenuOverlay: View {
         }
     }
     
-    // MARK: - Static menu definitions (NO dependen de self)
+    // MARK: - Static menu definitions
     
     private static let quickActionsStatic: [MenuItem] = [
         .init(title: "Resumen Rápido", systemImage: "bolt.fill", action: .quickAction(.quickInsights)),
@@ -399,7 +398,7 @@ private struct MoreMenuOverlay: View {
         }
     }
     
-    // MARK: - Instance accessors (ya usan las estáticas)
+    // MARK: - Instance accessors
     
     private var quickActions: [MenuItem] { Self.quickActionsStatic }
     private var mainNavigation: [MenuItem] { Self.mainNavigationStatic }
@@ -422,7 +421,7 @@ private struct MoreMenuOverlay: View {
         colorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.1)
     }
     
-    // MARK: - Init (usa SOLO las propiedades estáticas)
+    // MARK: - Init
     
     init(
         isPresented: Binding<Bool>,
@@ -447,17 +446,15 @@ private struct MoreMenuOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
-                // Fondo (blur + tint + gradiente) — también cierra al tocar fuera
                 backgroundLayers
                     .contentShape(Rectangle())
                     .onTapGesture(perform: dismissMenu)
 
-                // Contenedor centrado verticalmente
                 VStack {
-                    Spacer() // espacio superior
+                    Spacer()
                     menuContent
                         .padding(.horizontal, 36)
-                    Spacer() // espacio inferior
+                    Spacer()
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -466,7 +463,7 @@ private struct MoreMenuOverlay: View {
         }
         .onAppear(perform: showWithAnimation)
         .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape, dismissMenu)   // gesto de "Z" para cerrar
+        .accessibilityAction(.escape, dismissMenu)
     }
 
     // MARK: - Menu Content
@@ -474,20 +471,17 @@ private struct MoreMenuOverlay: View {
     @ViewBuilder
     private var menuContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Quick Actions
             menuSection(items: quickActions, startIndex: 0)
             
             sectionSpacer(height: 18)
             animatedDivider(afterIndex: quickActions.count - 1)
             sectionSpacer(height: 18)
             
-            // Main Navigation
             menuSection(items: mainNavigation, startIndex: quickActions.count)
             
             animatedDivider(afterIndex: quickActions.count + mainNavigation.count - 1)
                 .padding(.vertical, 14)
             
-            // Feature Sections
             menuSection(
                 items: featureSections,
                 startIndex: quickActions.count + mainNavigation.count
@@ -498,7 +492,6 @@ private struct MoreMenuOverlay: View {
             )
             .padding(.vertical, 14)
             
-            // Utility Sections
             menuSection(
                 items: utilitySections,
                 startIndex: quickActions.count + mainNavigation.count + featureSections.count
@@ -511,7 +504,6 @@ private struct MoreMenuOverlay: View {
     
     @ViewBuilder
     private var backgroundLayers: some View {
-        // Solo tint (el blur REAL ya lo está haciendo el TabView detrás)
         (colorScheme == .dark ? Color.black.opacity(0.48) : Color.black.opacity(0.10))
             .opacity(overlayOpacity)
             .ignoresSafeArea()
@@ -543,7 +535,7 @@ private struct MoreMenuOverlay: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: item.systemImage)
-                    .imageScale(.medium)          // tamaño consistente para todos
+                    .imageScale(.medium)
                     .frame(width: 24, alignment: .center)
                 
                 Text(item.title)
@@ -553,8 +545,7 @@ private struct MoreMenuOverlay: View {
             }
             .foregroundStyle(isActive ? FColors.brand : textColor)
         }
-        // 🔑 Aquí definimos la fuente UNA sola vez para TODO el item
-        .font(.title3.weight(.semibold))        // Dynamic Type friendly y consistente
+        .font(.title3.weight(.semibold))
         .buttonStyle(MenuButtonStyle())
         .opacity(state.opacity)
         .offset(y: state.offsetY)
@@ -652,7 +643,6 @@ private struct MoreMenuOverlay: View {
         case .section(let section):
             onSelection(.section(section))
         case .quickAction:
-            // TODO: acciones rápidas
             break
         }
         
@@ -683,7 +673,7 @@ private extension Array {
 
 extension TabSelection: CaseIterable {
     static var allCases: [TabSelection] {
-        [.home, .budget, .reports, .more, .search]
+        [.home, .transactions, .reports, .more, .search]
     }
 }
 
@@ -731,7 +721,6 @@ private struct SearchTabView: View {
                             Text("Encuentra transacciones, categorías, presupuestos y más.")
                                 .font(.subheadline)
                                 .foregroundStyle(FColors.textSecondary)
-
                         }
                         .padding(.vertical, FSpacing.md)
                     }
