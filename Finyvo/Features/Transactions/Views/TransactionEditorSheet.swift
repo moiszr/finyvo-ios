@@ -4,16 +4,75 @@
 //
 //  Created by Moises Núñez on 01/15/26.
 //  Redesigned on 02/01/26 - Premium Liquid Glass editor
+//  Refined on 02/03/26 - Premium action bar with liquid glass
+//  Optimized on 02/04/26 - Performance, accessibility, bug fixes
 //
 //  Layout:
-//    - Content centers when keyboard hidden (like WalletCreationFlow)
-//    - Buttons at bottom, tight spacing (4px from keyboard)
-//    - Same typography for description and amount
-//    - Capsule style selectors
+//    - Conditional Spacers: center content only when keyboard hidden
+//    - When keyboard visible: content stacks at top, selected tags hidden
+//    - Action section fixed at bottom, SwiftUI pushes it above keyboard
+//    - Tags selector bleeds to screen edges for premium feel
 //
 
 import SwiftUI
 import SwiftData
+internal import Combine
+
+// MARK: - Editor Constants
+
+private enum EditorConstants {
+    static let mainFontSize: CGFloat = 28
+    static let iconSizeSmall: CGFloat = 10
+    static let iconSizeMedium: CGFloat = 14
+    static let iconSizeLarge: CGFloat = 16
+    static let buttonHeight: CGFloat = 48
+    static let cardCornerRadius: CGFloat = 24
+    static let chipCornerRadius: CGFloat = 14
+    static let pillPaddingH: CGFloat = 14
+    static let pillPaddingV: CGFloat = 10
+    static let focusDelay: UInt64 = 400_000_000 // 400ms in nanoseconds
+    
+    enum AnimationConfig {
+        static let keyboard = Animation.interpolatingSpring(stiffness: 300, damping: 30)
+        static let quick = Animation.spring(response: 0.35, dampingFraction: 0.8)
+        static let breathing = Animation.spring(response: 0.4, dampingFraction: 0.8)
+    }
+}
+
+// MARK: - Keyboard Adaptive Modifier
+
+private struct KeyboardAdaptive: ViewModifier {
+    @Binding var keyboardHeight: CGFloat
+    var onKeyboardHide: (() -> Void)?
+    
+    func body(content: Content) -> some View {
+        content
+            .onReceive(
+                NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+                    .merge(with: NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification))
+            ) { notification in
+                guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+                withAnimation(EditorConstants.AnimationConfig.keyboard) {
+                    keyboardHeight = frame.height
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(EditorConstants.AnimationConfig.keyboard) {
+                    keyboardHeight = 0
+                }
+                onKeyboardHide?()
+            }
+    }
+}
+
+extension View {
+    fileprivate func keyboardAdaptive(
+        height: Binding<CGFloat>,
+        onHide: (() -> Void)? = nil
+    ) -> some View {
+        modifier(KeyboardAdaptive(keyboardHeight: height, onKeyboardHide: onHide))
+    }
+}
 
 // MARK: - Transaction Editor Sheet
 
@@ -54,7 +113,9 @@ struct TransactionEditorSheet: View {
     @State private var showDatePicker = false
     @State private var showTagsInput = false
     @State private var newTagName: String = ""
-    @State private var keyboardVisible = false
+    @State private var keyboardHeight: CGFloat = 0
+    @State private var isSaving = false
+    @State private var filteredTags: [Tag] = []
     
     @FocusState private var focusedField: EditorField?
     
@@ -105,6 +166,10 @@ struct TransactionEditorSheet: View {
         return CurrencyConfig.defaultCurrency.symbol
     }
     
+    private var currencyCode: String {
+        selectedWallet?.currencyCode ?? CurrencyConfig.defaultCurrency.code
+    }
+    
     private var isValid: Bool {
         guard amount > 0 else { return false }
         guard selectedWallet != nil else { return false }
@@ -133,110 +198,120 @@ struct TransactionEditorSheet: View {
         }
     }
     
-    private var isAmountFieldFocused: Bool {
-        focusedField == .amount
-    }
-    
     private var hasAmountValue: Bool {
         !amountText.isEmpty
+    }
+    
+    private var isTagInputEmpty: Bool {
+        newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
+    private var isKeyboardVisible: Bool {
+        keyboardHeight > 0
     }
     
     // MARK: - Body
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                FColors.background
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        dismissKeyboard()
-                    }
-                
-                VStack(spacing: 0) {
-                    // Main content area - centers when keyboard hidden
-                    GeometryReader { geometry in
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(spacing: FSpacing.lg) {
-                                // Type picker
-                                typePickerSection
-                                    .padding(.top, FSpacing.sm)
-                                
-                                // Unified glass card
-                                unifiedGlassCard
-                                
-                                // Selected tags (full width scroll)
-                                if !selectedTags.isEmpty {
-                                    selectedTagsRow
-                                }
-                            }
-                            .padding(.horizontal, FSpacing.lg)
-                            .frame(minHeight: geometry.size.height - (keyboardVisible ? 0 : 60))
-                            .frame(maxWidth: .infinity)
-                        }
-                        .scrollDismissesKeyboard(.interactively)
-                    }
-                    
-                    // Bottom action bar - tight spacing
-                    bottomActionBar
-                }
+            VStack(spacing: 0) {
+                mainContentArea
+                actionSection
+                    .padding(.horizontal, FSpacing.lg)
+                    .padding(.top, FSpacing.sm)
+                    .padding(.bottom, FSpacing.sm)
             }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(FColors.textSecondary)
-                    }
-                }
-            }
+            .background(FColors.background.ignoresSafeArea())
+            .toolbar { toolbarContent }
         }
-        .sheet(isPresented: $showCategoryPicker) {
-            TransactionCategoryPickerSheet(
-                selectedCategory: $selectedCategory,
-                type: selectedType == .income ? CategoryType.income : CategoryType.expense
-            )
-        }
-        .sheet(isPresented: $showWalletPicker) {
-            TransactionWalletPickerSheet(
-                selectedWallet: $selectedWallet,
-                excludeWallet: nil
-            )
-        }
-        .sheet(isPresented: $showDestinationWalletPicker) {
-            TransactionWalletPickerSheet(
-                selectedWallet: $selectedDestinationWallet,
-                excludeWallet: selectedWallet
-            )
-        }
-        .sheet(isPresented: $showDatePicker) {
-            DatePickerSheet(selectedDate: $date)
-        }
-        .onChange(of: selectedType) { _, newType in
-            handleTypeChange(to: newType)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            withAnimation(Constants.Animation.quickSpring) {
-                keyboardVisible = true
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(Constants.Animation.quickSpring) {
-                keyboardVisible = false
-            }
+        .sheet(isPresented: $showCategoryPicker) { categoryPickerSheet }
+        .sheet(isPresented: $showWalletPicker) { walletPickerSheet }
+        .sheet(isPresented: $showDestinationWalletPicker) { destinationWalletPickerSheet }
+        .sheet(isPresented: $showDatePicker) { DatePickerSheet(selectedDate: $date) }
+        .onChange(of: selectedType) { _, newType in handleTypeChange(to: newType) }
+        .onChange(of: focusedField) { _, newField in handleFocusChange(to: newField) }
+        .onChange(of: newTagName) { _, newValue in updateFilteredTags(searchText: newValue) }
+        .onChange(of: allTags) { _, _ in updateFilteredTags(searchText: newTagName) }
+        .onChange(of: selectedTags) { _, _ in updateFilteredTags(searchText: newTagName) }
+        .keyboardAdaptive(height: $keyboardHeight) {
+            handleKeyboardHide()
         }
         .interactiveDismissDisabled(hasChanges)
         .presentationDragIndicator(.hidden)
         .presentationBackground(FColors.background)
-        .task {
-            if selectedWallet == nil, let defaultWallet = wallets.first(where: { $0.isDefault }) ?? wallets.first {
-                selectedWallet = defaultWallet
-            }
+        .task { await initialSetup() }
+    }
+    
+    // MARK: - Main Content Area
+    
+    private var mainContentArea: some View {
+        ZStack {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { dismissKeyboard() }
             
-            try? await Task.sleep(for: .milliseconds(400))
-            focusedField = .note
+            VStack(spacing: FSpacing.md) {
+                if !isKeyboardVisible {
+                    Spacer(minLength: 0)
+                }
+                
+                typePickerSection
+                unifiedGlassCard
+                
+                if !selectedTags.isEmpty && !showTagsInput && !isKeyboardVisible {
+                    selectedTagsRow
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                
+                if !isKeyboardVisible {
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(.horizontal, FSpacing.lg)
+            .padding(.top, isKeyboardVisible ? FSpacing.md : 0)
+            .animation(EditorConstants.AnimationConfig.quick, value: isKeyboardVisible)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Toolbar
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
+                    .foregroundStyle(FColors.textSecondary)
+            }
+            .accessibilityLabel("Cerrar editor")
+            .accessibilityHint("Cierra el editor sin guardar")
+        }
+    }
+    
+    // MARK: - Sheet Builders
+    
+    private var categoryPickerSheet: some View {
+        TransactionCategoryPickerSheet(
+            selectedCategory: $selectedCategory,
+            type: selectedType == .income ? CategoryType.income : CategoryType.expense
+        )
+    }
+    
+    private var walletPickerSheet: some View {
+        TransactionWalletPickerSheet(
+            selectedWallet: $selectedWallet,
+            excludeWallet: nil
+        )
+    }
+    
+    private var destinationWalletPickerSheet: some View {
+        TransactionWalletPickerSheet(
+            selectedWallet: $selectedDestinationWallet,
+            excludeWallet: selectedWallet
+        )
     }
     
     // MARK: - Type Picker Section
@@ -250,15 +325,17 @@ struct TransactionEditorSheet: View {
                     tint: pill.tint,
                     namespace: typePillNamespace
                 ) {
-                    withAnimation(Constants.Animation.quickSpring) {
+                    withAnimation(EditorConstants.AnimationConfig.quick) {
                         selectedType = pill.type
                     }
                     Constants.Haptic.selection()
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading) // ancla al leading
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, FSpacing.xs)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Tipo de transacción")
     }
 
     
@@ -266,36 +343,36 @@ struct TransactionEditorSheet: View {
     
     private var unifiedGlassCard: some View {
         VStack(alignment: .leading, spacing: FSpacing.md) {
-            // Calendar button at top
             dateButton
                 .padding(.bottom, FSpacing.xs)
             
-            // Description field
-            noteField
+            // Descripción y Monto con spacing reducido
+            VStack(alignment: .leading, spacing: FSpacing.sm) { // 👈 Spacing más tight
+                noteField
+                amountField
+            }
             
-            // Amount field (tight spacing)
-            amountField
-            
-            // Selectors row (capsule style)
             selectorsRow
                 .padding(.top, FSpacing.sm)
         }
         .padding(.vertical, FSpacing.lg)
         .padding(.horizontal, FSpacing.lg)
         .background(glassCardBackground)
+        .scaleEffect(focusedField != nil ? 1.005 : 1.0)
+        .animation(EditorConstants.AnimationConfig.breathing, value: focusedField != nil)
     }
     
     @ViewBuilder
     private var glassCardBackground: some View {
         if #available(iOS 26.0, *) {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
                 .fill(.clear)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                .glassEffect(.regular, in: .rect(cornerRadius: EditorConstants.cardCornerRadius))
         } else {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: colorScheme == .dark
@@ -307,7 +384,7 @@ struct TransactionEditorSheet: View {
                         )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
                         .stroke(
                             LinearGradient(
                                 colors: colorScheme == .dark
@@ -331,12 +408,11 @@ struct TransactionEditorSheet: View {
     
     private var dateButton: some View {
         Button {
-            Constants.Haptic.light()
             showDatePicker = true
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
                     .foregroundStyle(FColors.blue)
                 
                 Text(dateDisplayText)
@@ -344,17 +420,20 @@ struct TransactionEditorSheet: View {
                     .foregroundStyle(FColors.textPrimary)
                 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: EditorConstants.iconSizeSmall, weight: .bold))
                     .foregroundStyle(FColors.textTertiary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, EditorConstants.pillPaddingH)
+            .padding(.vertical, EditorConstants.pillPaddingV)
             .background(
                 Capsule()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
             )
         }
         .buttonStyle(EditorScaleButtonStyle())
+        .accessibilityLabel("Fecha de la transacción")
+        .accessibilityValue(dateDisplayText)
+        .accessibilityHint("Toca para cambiar la fecha")
     }
     
     private var dateDisplayText: String {
@@ -370,53 +449,56 @@ struct TransactionEditorSheet: View {
         }
     }
     
-    // MARK: - Note Field (Same size as amount)
+    // MARK: - Note Field
     
     private var noteField: some View {
         TextField("Descripción", text: $note)
-            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .font(.system(size: EditorConstants.mainFontSize, weight: .bold, design: .rounded))
             .foregroundStyle(FColors.textPrimary)
             .multilineTextAlignment(.leading)
             .focused($focusedField, equals: .note)
             .submitLabel(.next)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
-            .onSubmit {
-                focusedField = .amount
-            }
+            .onSubmit { focusedField = .amount }
+            .accessibilityLabel("Descripción de la transacción")
+            .accessibilityHint("Ingresa una descripción opcional")
     }
     
-    // MARK: - Amount Field (Symbol only when value exists)
+    // MARK: - Amount Field
     
     private var amountField: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            // Currency symbol only shows when there's a value
             if hasAmountValue {
                 Text(currencySymbol)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(.system(size: EditorConstants.mainFontSize, weight: .bold, design: .rounded))
                     .foregroundStyle(typeColor)
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .accessibilityHidden(true)
             }
             
             TextField("Monto", text: $amountText)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(.system(size: EditorConstants.mainFontSize, weight: .bold, design: .rounded))
                 .foregroundStyle(hasAmountValue ? typeColor : FColors.textTertiary)
                 .keyboardType(.decimalPad)
                 .focused($focusedField, equals: .amount)
                 .onChange(of: amountText) { _, newValue in
                     amountText = formatAmountInput(newValue)
                 }
+                .accessibilityLabel("Monto de la transacción")
+                .accessibilityValue(hasAmountValue ? "\(currencySymbol)\(amountText)" : "Sin monto")
+                .accessibilityHint("Ingresa el monto en \(currencyCode)")
             
             Spacer()
         }
-        .animation(Constants.Animation.quickSpring, value: hasAmountValue)
+        .accessibilityElement(children: .combine)
+        .animation(EditorConstants.AnimationConfig.quick, value: hasAmountValue)
     }
     
-    // MARK: - Selectors Row (Capsule Style)
+    // MARK: - Selectors Row
     
     private var selectorsRow: some View {
         HStack(spacing: FSpacing.sm) {
-            // Wallet
             CapsuleSelectorButton(
                 icon: selectedWallet?.icon.rawValue ?? "wallet.pass.fill",
                 iconColor: selectedWallet?.color.color ?? FColors.textTertiary,
@@ -425,8 +507,10 @@ struct TransactionEditorSheet: View {
             ) {
                 showWalletPicker = true
             }
+            .accessibilityLabel("Billetera")
+            .accessibilityValue(selectedWallet?.name ?? "No seleccionada")
+            .accessibilityHint("Toca para seleccionar una billetera")
             
-            // Category / Destination
             if selectedType != .transfer {
                 CapsuleSelectorButton(
                     icon: selectedCategory?.icon.rawValue ?? "square.grid.2x2.fill",
@@ -436,6 +520,9 @@ struct TransactionEditorSheet: View {
                 ) {
                     showCategoryPicker = true
                 }
+                .accessibilityLabel("Categoría")
+                .accessibilityValue(selectedCategory?.name ?? "No seleccionada")
+                .accessibilityHint("Toca para seleccionar una categoría")
             } else {
                 CapsuleSelectorButton(
                     icon: selectedDestinationWallet?.icon.rawValue ?? "wallet.pass.fill",
@@ -445,6 +532,9 @@ struct TransactionEditorSheet: View {
                 ) {
                     showDestinationWalletPicker = true
                 }
+                .accessibilityLabel("Billetera destino")
+                .accessibilityValue(selectedDestinationWallet?.name ?? "No seleccionada")
+                .accessibilityHint("Toca para seleccionar la billetera destino")
             }
         }
     }
@@ -456,196 +546,352 @@ struct TransactionEditorSheet: View {
             HStack(spacing: FSpacing.sm) {
                 ForEach(selectedTags) { tag in
                     GlassTagChip(tag: tag) {
-                        withAnimation(Constants.Animation.quickSpring) {
+                        withAnimation(EditorConstants.AnimationConfig.quick) {
                             selectedTags.removeAll { $0.id == tag.id }
                         }
+                        Constants.Haptic.light()
                     }
                 }
             }
         }
         .scrollClipDisabled()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Etiquetas seleccionadas: \(selectedTags.count)")
     }
     
-    // MARK: - Bottom Action Bar (Tight Spacing)
+    // MARK: - Action Section
     
-    private var bottomActionBar: some View {
-        VStack(spacing: 0) {
-            if showTagsInput {
-                // Tags input mode
-                tagsInputSection
-                    .padding(.horizontal, FSpacing.lg)
-                    .padding(.top, FSpacing.sm)
-                    .padding(.bottom, FSpacing.sm)
+    private var actionSection: some View {
+        VStack(spacing: 9) {
+            if showTagsInput && !filteredTags.isEmpty {
+                tagsScrollView
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .move(edge: .bottom)),
-                        removal: .opacity.combined(with: .move(edge: .bottom))
+                        removal: .opacity
                     ))
-            } else {
-                // Normal mode
-                normalActionButtons
-                    .padding(.horizontal, FSpacing.lg)
-                    .padding(.top, FSpacing.sm)
-                    .padding(.bottom, 4)
-                    .transition(.opacity)
             }
+            
+            HStack(spacing: 12) {
+                if showTagsInput {
+                    tagsInputRow
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.95, anchor: .leading).combined(with: .opacity),
+                            removal: .scale(scale: 0.95, anchor: .leading).combined(with: .opacity)
+                        ))
+                } else {
+                    normalActionButtons
+                        .transition(.opacity)
+                }
+            }
+            .animation(EditorConstants.AnimationConfig.quick, value: showTagsInput)
         }
-        .background(FColors.background)
-        .animation(Constants.Animation.quickSpring, value: showTagsInput)
+        .animation(EditorConstants.AnimationConfig.quick, value: showTagsInput)
+        .animation(EditorConstants.AnimationConfig.quick, value: newTagName)
+    }
+    
+    private var tagsScrollView: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(filteredTags) { tag in
+                    let isSelected = selectedTags.contains { $0.id == tag.id }
+                    SelectableTagChip(tag: tag, isSelected: isSelected) {
+                        Constants.Haptic.selection()
+                        withAnimation(EditorConstants.AnimationConfig.quick) {
+                            if isSelected {
+                                selectedTags.removeAll { $0.id == tag.id }
+                            } else {
+                                selectedTags.append(tag)
+                            }
+                        }
+                    }
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.8).combined(with: .opacity),
+                        removal: .scale(scale: 0.8).combined(with: .opacity)
+                    ))
+                }
+            }
+            .padding(.horizontal, FSpacing.lg)
+            .animation(EditorConstants.AnimationConfig.quick, value: filteredTags.map { $0.id })
+        }
+        .scrollClipDisabled()
+        .padding(.horizontal, -FSpacing.lg)
+    }
+    
+    // MARK: - Update Filtered Tags
+    
+    private func updateFilteredTags(searchText: String) {
+        let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = search.isEmpty ? allTags : allTags.filter { $0.name.lowercased().contains(search) }
+        
+        let sorted = filtered.sorted { tag1, tag2 in
+            let s1 = selectedTags.contains { $0.id == tag1.id }
+            let s2 = selectedTags.contains { $0.id == tag2.id }
+            if s1 != s2 { return s1 }
+            return tag1.name.localizedCaseInsensitiveCompare(tag2.name) == .orderedAscending
+        }
+        
+        // Animar el cambio de filteredTags
+        withAnimation(EditorConstants.AnimationConfig.quick) {
+            filteredTags = sorted
+        }
+    }
+    
+    // MARK: - Tags Input Row
+    
+    private var tagsInputRow: some View {
+        HStack(spacing: 10) {
+            tagsInputField
+            tagsActionButton
+        }
+    }
+    
+    private var tagsInputField: some View {
+        HStack(spacing: 0) {
+            Image(systemName: "tag.fill")
+                .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
+                .foregroundStyle(FColors.textTertiary)
+                .frame(width: 50)
+            
+            TextField("Nueva etiqueta...", text: $newTagName)
+                .font(.subheadline)
+                .focused($focusedField, equals: .tag)
+                .submitLabel(.done)
+                .onSubmit {
+                    if !isTagInputEmpty {
+                        addTagIfNeeded()
+                    }
+                }
+                .padding(.trailing, 12)
+                .accessibilityLabel("Nombre de la etiqueta")
+                .accessibilityHint("Escribe el nombre de una nueva etiqueta o busca existentes")
+        }
+        .frame(height: EditorConstants.buttonHeight)
+        .background(tagsInputBackground)
+    }
+    
+    @ViewBuilder
+    private var tagsInputBackground: some View {
+        if #available(iOS 26.0, *) {
+            Capsule()
+                .fill(.clear)
+                .glassEffect(.regular.tint(FColors.textTertiary.opacity(0.1)))
+        } else {
+            Capsule()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                .overlay(
+                    Capsule()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08), lineWidth: 1)
+                )
+        }
+    }
+    
+    private var tagsActionButton: some View {
+        Button {
+            if isTagInputEmpty {
+                closeTagsInput()
+            } else {
+                addTagIfNeeded()
+            }
+        } label: {
+            Image(systemName: isTagInputEmpty ? "xmark" : "plus")
+                .font(.system(size: EditorConstants.iconSizeLarge, weight: .bold))
+                .foregroundStyle(isTagInputEmpty ? FColors.textSecondary : .white)
+                .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
+                .background(tagsActionButtonBackground)
+                .contentShape(Circle())
+        }
+        .buttonStyle(EditorScaleButtonStyle())
+        .animation(EditorConstants.AnimationConfig.quick, value: isTagInputEmpty)
+        .accessibilityLabel(isTagInputEmpty ? "Cerrar" : "Agregar etiqueta")
+        .accessibilityHint(isTagInputEmpty ? "Cierra el campo de etiquetas" : "Agrega la etiqueta escrita")
+    }
+    
+    @ViewBuilder
+    private var tagsActionButtonBackground: some View {
+        if #available(iOS 26.0, *) {
+            Circle()
+                .fill(isTagInputEmpty ? .clear : FColors.brand)
+                .glassEffect(
+                    isTagInputEmpty
+                        ? .regular.tint(FColors.textTertiary.opacity(0.1))
+                        : .regular.tint(FColors.brand.opacity(0.3))
+                )
+        } else {
+            Circle()
+                .fill(
+                    isTagInputEmpty
+                        ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                        : FColors.brand
+                )
+                .overlay(
+                    Circle()
+                        .stroke(
+                            isTagInputEmpty
+                                ? (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                : FColors.brand,
+                            lineWidth: 1
+                        )
+                )
+        }
     }
     
     private var normalActionButtons: some View {
-        HStack(spacing: FSpacing.md) {
-            // Tags button (no liquid glass, simple circle)
-            Button {
-                Constants.Haptic.light()
-                withAnimation(Constants.Animation.quickSpring) {
-                    showTagsInput = true
-                    focusedField = .tag
-                }
-            } label: {
-                Text("#")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(!selectedTags.isEmpty ? FColors.brand : FColors.textSecondary)
-                    .frame(width: 56, height: 56)
-                    .background(
-                        Circle()
-                            .fill(
-                                !selectedTags.isEmpty
-                                    ? FColors.brand.opacity(colorScheme == .dark ? 0.2 : 0.1)
-                                    : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                            )
-                    )
-            }
-            .buttonStyle(EditorScaleButtonStyle())
-            
-            // Create button (FlowContinueButton style)
+        HStack(spacing: 12) {
+            tagsToggleButton
             createButton
             
-            // Keyboard dismiss button (only when amount field is focused)
-            if isAmountFieldFocused {
+            if isKeyboardVisible {
                 keyboardDismissButton
                     .transition(.scale.combined(with: .opacity))
             }
         }
-        .animation(Constants.Animation.quickSpring, value: isAmountFieldFocused)
+        .animation(EditorConstants.AnimationConfig.quick, value: isKeyboardVisible)
+    }
+    
+    private var tagsToggleButton: some View {
+        Button {
+            withAnimation(EditorConstants.AnimationConfig.quick) {
+                showTagsInput = true
+                focusedField = .tag
+            }
+        } label: {
+            Image(systemName: "tag.fill")
+                .font(.system(size: EditorConstants.iconSizeLarge, weight: .semibold))
+                .foregroundStyle(!selectedTags.isEmpty ? FColors.brand : FColors.textSecondary)
+                .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
+                .background(tagsToggleBackground)
+        }
+        .buttonStyle(EditorScaleButtonStyle())
+        .accessibilityLabel("Agregar etiquetas")
+        .accessibilityValue(selectedTags.isEmpty ? "Sin etiquetas" : "\(selectedTags.count) etiquetas")
+        .accessibilityHint("Abre el selector de etiquetas")
+    }
+    
+    @ViewBuilder
+    private var tagsToggleBackground: some View {
+        if #available(iOS 26.0, *) {
+            Circle()
+                .fill(.clear)
+                .glassEffect(
+                    !selectedTags.isEmpty
+                        ? .regular.tint(FColors.brand.opacity(0.15))
+                        : .regular.tint(FColors.textTertiary.opacity(0.1))
+                )
+        } else {
+            Circle()
+                .fill(
+                    !selectedTags.isEmpty
+                        ? FColors.brand.opacity(colorScheme == .dark ? 0.2 : 0.1)
+                        : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(
+                            !selectedTags.isEmpty
+                                ? FColors.brand.opacity(colorScheme == .dark ? 0.4 : 0.3)
+                                : (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)),
+                            lineWidth: 1
+                        )
+                )
+        }
     }
     
     private var createButton: some View {
         Button {
             save()
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(mode.isCreating ? "Crear" : "Guardar")
-                    .font(.body.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                 
                 Image(systemName: mode.isCreating ? "plus" : "checkmark")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
             }
             .foregroundStyle(isValid ? (colorScheme == .dark ? .black : .white) : FColors.textTertiary)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(height: EditorConstants.buttonHeight)
             .background(
                 Capsule()
                     .fill(isValid ? typeColor : FColors.textTertiary.opacity(0.2))
             )
-            .shadow(color: isValid ? typeColor.opacity(0.25) : .clear, radius: 8, y: 4)
+            .shadow(color: isValid ? typeColor.opacity(0.2) : .clear, radius: 6, y: 3)
         }
-        .disabled(!isValid)
+        .disabled(!isValid || isSaving)
         .buttonStyle(EditorScaleButtonStyle())
+        .accessibilityLabel(mode.isCreating ? "Crear transacción" : "Guardar cambios")
+        .accessibilityHint(isValid ? "Guarda la transacción" : "Completa los campos requeridos primero")
     }
     
     private var keyboardDismissButton: some View {
         Button {
-            Constants.Haptic.light()
             dismissKeyboard()
         } label: {
             Image(systemName: "keyboard.chevron.compact.down")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(FColors.textPrimary)
-                .frame(width: 56, height: 56)
-                .background(
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                )
+                .font(.system(size: EditorConstants.iconSizeLarge, weight: .semibold))
+                .foregroundStyle(FColors.textSecondary)
+                .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
+                .background(keyboardDismissBackground)
         }
         .buttonStyle(EditorScaleButtonStyle())
+        .accessibilityLabel("Ocultar teclado")
     }
     
-    // MARK: - Tags Input Section
-    
-    private var tagsInputSection: some View {
-        VStack(spacing: FSpacing.sm) {
-            // Existing tags to select
-            if !allTags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: FSpacing.sm) {
-                        ForEach(allTags) { tag in
-                            let isSelected = selectedTags.contains { $0.id == tag.id }
-                            SelectableTagChip(tag: tag, isSelected: isSelected) {
-                                Constants.Haptic.selection()
-                                withAnimation(Constants.Animation.quickSpring) {
-                                    if isSelected {
-                                        selectedTags.removeAll { $0.id == tag.id }
-                                    } else {
-                                        selectedTags.append(tag)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Input row
-            HStack(spacing: FSpacing.md) {
-                TextField("Nueva etiqueta...", text: $newTagName)
-                    .font(.subheadline)
-                    .focused($focusedField, equals: .tag)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        createTagOrClose()
-                    }
-                    .padding(.horizontal, FSpacing.md)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                    )
-                
-                // Create/Close button (circular, same style)
-                Button {
-                    createTagOrClose()
-                } label: {
-                    Image(systemName: newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "xmark" : "plus")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(colorScheme == .dark ? .black : .white)
-                        .frame(width: 56, height: 56)
-                        .background(
-                            Circle()
-                                .fill(
-                                    newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                        ? (colorScheme == .dark ? .white : .black)
-                                        : FColors.brand
-                                )
-                        )
-                        .shadow(
-                            color: newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? .clear
-                                : FColors.brand.opacity(0.25),
-                            radius: 8,
-                            y: 4
-                        )
-                }
-                .buttonStyle(EditorScaleButtonStyle())
-            }
+    @ViewBuilder
+    private var keyboardDismissBackground: some View {
+        if #available(iOS 26.0, *) {
+            Circle()
+                .fill(.clear)
+                .glassEffect(.regular.tint(FColors.textTertiary.opacity(0.1)))
+        } else {
+            Circle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                .overlay(
+                    Circle()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08), lineWidth: 1)
+                )
         }
     }
     
     // MARK: - Actions
     
+    private func addTagIfNeeded() {
+        let name = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        
+        if let existingTag = allTags.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+            if !selectedTags.contains(where: { $0.id == existingTag.id }) {
+                selectedTags.append(existingTag)
+            }
+        } else {
+            let randomColor = FCardColor.allCases.randomElement() ?? .blue
+            let newTag = Tag(name: name, color: randomColor)
+            
+            modelContext.insert(newTag)
+            
+            do {
+                try modelContext.save()
+                selectedTags.append(newTag)
+            } catch {
+                modelContext.rollback()
+                // Tag creation failed silently - the user will notice the tag wasn't added
+            }
+        }
+        
+        newTagName = ""
+        Constants.Haptic.success()
+        closeTagsInput()
+    }
+    
+    private func closeTagsInput() {
+        withAnimation(EditorConstants.AnimationConfig.quick) {
+            showTagsInput = false
+            newTagName = ""
+            focusedField = nil
+        }
+    }
+    
     private func dismissKeyboard() {
         focusedField = nil
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
     
     private func handleTypeChange(to newType: TransactionType) {
@@ -660,6 +906,29 @@ struct TransactionEditorSheet: View {
         
         if newType != .transfer {
             selectedDestinationWallet = nil
+        }
+    }
+    
+    private func handleFocusChange(to newField: EditorField?) {
+        if newField == .note || newField == .amount {
+            withAnimation(EditorConstants.AnimationConfig.quick) {
+                showTagsInput = false
+                newTagName = ""
+            }
+        }
+    }
+    
+    private func handleKeyboardHide() {
+        // Only close tags input if it's open and we're not in the middle of adding a tag
+        if showTagsInput {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if keyboardHeight == 0 && showTagsInput {
+                    withAnimation(EditorConstants.AnimationConfig.quick) {
+                        showTagsInput = false
+                        newTagName = ""
+                    }
+                }
+            }
         }
     }
     
@@ -705,34 +974,30 @@ struct TransactionEditorSheet: View {
         return String(format: "%.2f", value)
     }
     
-    private func createTagOrClose() {
-        let name = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if name.isEmpty {
-            withAnimation(Constants.Animation.quickSpring) {
-                showTagsInput = false
-                focusedField = nil
-            }
-            return
+    private func initialSetup() async {
+        // Set default wallet
+        if selectedWallet == nil, let defaultWallet = wallets.first(where: { $0.isDefault }) ?? wallets.first {
+            selectedWallet = defaultWallet
         }
         
-        if let existingTag = allTags.first(where: { $0.name.lowercased() == name.lowercased() }) {
-            if !selectedTags.contains(where: { $0.id == existingTag.id }) {
-                selectedTags.append(existingTag)
-            }
-        } else {
-            let randomColor = FCardColor.allCases.randomElement() ?? .blue
-            let newTag = Tag(name: name, color: randomColor)
-            modelContext.insert(newTag)
-            selectedTags.append(newTag)
-        }
+        // Initialize filtered tags
+        updateFilteredTags(searchText: "")
         
-        newTagName = ""
-        Constants.Haptic.success()
+        // Focus after delay
+        try? await Task.sleep(nanoseconds: EditorConstants.focusDelay)
+        focusedField = .note
     }
     
     private func save() {
-        guard isValid else { return }
+        // Defensive validation
+        guard isValid else {
+            Constants.Haptic.error()
+            return
+        }
+        
+        // Prevent double-tap
+        guard !isSaving else { return }
+        isSaving = true
         
         Constants.Haptic.success()
         focusedField = nil
@@ -765,9 +1030,12 @@ struct TransactionEditorSheet: View {
                 try modelContext.save()
             } catch {
                 viewModel.error = .saveFailed
+                isSaving = false
+                return
             }
         }
         
+        isSaving = false
         dismiss()
     }
 }
@@ -785,12 +1053,11 @@ private struct CapsuleSelectorButton: View {
     
     var body: some View {
         Button {
-            Constants.Haptic.light()
             action()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
                     .foregroundStyle(iconColor)
                 
                 Text(title)
@@ -799,11 +1066,11 @@ private struct CapsuleSelectorButton: View {
                     .lineLimit(1)
                 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: EditorConstants.iconSizeSmall, weight: .bold))
                     .foregroundStyle(FColors.textTertiary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, EditorConstants.pillPaddingH)
+            .padding(.vertical, EditorConstants.pillPaddingV)
             .background(
                 Capsule()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
@@ -832,17 +1099,20 @@ private struct GlassTagChip: View {
                 .foregroundStyle(FColors.textPrimary)
             
             Button {
-                Constants.Haptic.light()
                 onRemove()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: EditorConstants.iconSizeSmall, weight: .bold))
                     .foregroundStyle(FColors.textTertiary)
             }
+            .accessibilityLabel("Eliminar etiqueta \(tag.displayName)")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, EditorConstants.pillPaddingH)
+        .padding(.vertical, EditorConstants.pillPaddingV)
         .background(chipBackground)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Etiqueta: \(tag.displayName)")
+        .accessibilityHint("Toca la X para eliminar")
     }
     
     @ViewBuilder
@@ -875,22 +1145,42 @@ private struct SelectableTagChip: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(isSelected ? .white : tag.color.color)
+                    .fill(isSelected ? selectedTextColor : tag.color.color)
                     .frame(width: 8, height: 8)
                 
                 Text(tag.displayName)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(isSelected ? .white : FColors.textPrimary)
+                    .foregroundStyle(isSelected ? selectedTextColor : FColors.textPrimary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                Capsule()
-                    .fill(isSelected ? tag.color.color : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)))
-            )
+            .padding(.horizontal, EditorConstants.pillPaddingH)
+            .padding(.vertical, EditorConstants.pillPaddingV)
+            .background(chipBackground)
         }
         .buttonStyle(.plain)
-        .animation(Constants.Animation.quickSpring, value: isSelected)
+        .animation(EditorConstants.AnimationConfig.quick, value: isSelected)
+        .accessibilityLabel(tag.displayName)
+        .accessibilityValue(isSelected ? "Seleccionada" : "No seleccionada")
+        .accessibilityHint("Toca para \(isSelected ? "deseleccionar" : "seleccionar")")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+    
+    private var selectedTextColor: Color {
+        if tag.color == .white {
+            return colorScheme == .dark ? .black : .white
+        }
+        return .white
+    }
+    
+    @ViewBuilder
+    private var chipBackground: some View {
+        if #available(iOS 26.0, *) {
+            Capsule()
+                .fill(isSelected ? tag.color.color : .clear)
+                .glassEffect(.regular.tint(tag.color.color.opacity(0.15)))
+        } else {
+            Capsule()
+                .fill(isSelected ? tag.color.color : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)))
+        }
     }
 }
 
@@ -912,12 +1202,8 @@ private struct DatePickerSheet: View {
                 .datePickerStyle(.graphical)
                 .padding(.top, FSpacing.sm)
                 .padding(.horizontal, FSpacing.md)
-                .onChange(of: selectedDate) { _, _ in
-                    Constants.Haptic.selection()
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(200))
-                        dismiss()
-                    }
+                .onChange(of: selectedDate) { oldValue, newValue in
+                    handleDateChange(from: oldValue, to: newValue)
                 }
                 
                 Spacer(minLength: 0)
@@ -935,9 +1221,10 @@ private struct DatePickerSheet: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
                             .foregroundStyle(FColors.textSecondary)
                     }
+                    .accessibilityLabel("Cerrar selector de fecha")
                 }
             }
         }
@@ -945,6 +1232,22 @@ private struct DatePickerSheet: View {
         .presentationDragIndicator(.hidden)
         .presentationBackground(Color.clear)
         .presentationContentInteraction(.scrolls)
+    }
+    
+    private func handleDateChange(from oldValue: Date, to newValue: Date) {
+        let calendar = Calendar.current
+        let oldDay = calendar.component(.day, from: oldValue)
+        let newDay = calendar.component(.day, from: newValue)
+        let oldMonth = calendar.component(.month, from: oldValue)
+        let newMonth = calendar.component(.month, from: newValue)
+        let oldYear = calendar.component(.year, from: oldValue)
+        let newYear = calendar.component(.year, from: newValue)
+        
+        // If day changed within same month/year = day selection
+        if oldDay != newDay && oldMonth == newMonth && oldYear == newYear {
+            Constants.Haptic.selection()
+            dismiss()
+        }
     }
 }
 
@@ -955,7 +1258,7 @@ private struct EditorScaleButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.9 : 1)
-            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
+            .animation(EditorConstants.AnimationConfig.quick, value: configuration.isPressed)
     }
 }
 
@@ -967,6 +1270,7 @@ struct TransactionCategoryPickerSheet: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedDetent: PresentationDetent = .medium
     
     @Query private var categories: [Category]
     
@@ -993,7 +1297,8 @@ struct TransactionCategoryPickerSheet: View {
                         ForEach(categories) { category in
                             CategoryPickerCard(
                                 category: category,
-                                isSelected: selectedCategory?.id == category.id
+                                isSelected: selectedCategory?.id == category.id,
+                                isCompact: selectedDetent == .medium
                             ) {
                                 selectedCategory = category
                                 Constants.Haptic.selection()
@@ -1017,15 +1322,16 @@ struct TransactionCategoryPickerSheet: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
                             .foregroundStyle(FColors.textSecondary)
                     }
+                    .accessibilityLabel("Cerrar selector de categoría")
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
-        .presentationBackground(Color.clear)
+        .presentationBackground(selectedDetent == .large ? FColors.background : Color.clear)
     }
     
     private var emptyCategoryState: some View {
@@ -1048,12 +1354,15 @@ struct TransactionCategoryPickerSheet: View {
             Spacer()
         }
         .padding(FSpacing.xxxl)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Sin categorías disponibles. Crea categorías desde el menú.")
     }
 }
 
 private struct CategoryPickerCard: View {
     let category: Category
     let isSelected: Bool
+    var isCompact: Bool = false
     let action: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
@@ -1080,28 +1389,49 @@ private struct CategoryPickerCard: View {
             .padding(.vertical, FSpacing.md)
             .background(cardBackground)
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(
-                        isSelected ? category.color.color : Color.clear,
-                        lineWidth: 2
-                    )
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(isSelected ? category.color.color : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(EditorScaleButtonStyle())
+        .accessibilityLabel(category.name)
+        .accessibilityValue(isSelected ? "Seleccionada" : "")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
     
     @ViewBuilder
     private var cardBackground: some View {
-        if #available(iOS 26.0, *) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.clear)
-                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        if isCompact {
+            // Semi-transparente cuando está en .medium
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(colorScheme == .dark
+                    ? Color.white.opacity(0.06)
+                    : Color.black.opacity(0.03)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.08)
+                                : Color.black.opacity(0.05),
+                            lineWidth: 1
+                        )
+                )
         } else {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            // Sólido cuando está en .large
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(colorScheme == .dark ? FColors.backgroundSecondary : Color.white)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(
+                            colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.04),
+                    radius: 8,
+                    y: 4
                 )
         }
     }
@@ -1115,6 +1445,7 @@ struct TransactionWalletPickerSheet: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedDetent: PresentationDetent = .medium
     
     @Query(filter: #Predicate<Wallet> { !$0.isArchived })
     private var wallets: [Wallet]
@@ -1129,11 +1460,12 @@ struct TransactionWalletPickerSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: FSpacing.sm) {
+                VStack(spacing: FSpacing.md) {
                     ForEach(filteredWallets) { wallet in
                         WalletPickerRow(
                             wallet: wallet,
-                            isSelected: selectedWallet?.id == wallet.id
+                            isSelected: selectedWallet?.id == wallet.id,
+                            isCompact: selectedDetent == .medium
                         ) {
                             selectedWallet = wallet
                             Constants.Haptic.selection()
@@ -1156,21 +1488,23 @@ struct TransactionWalletPickerSheet: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
                             .foregroundStyle(FColors.textSecondary)
                     }
+                    .accessibilityLabel("Cerrar selector de billetera")
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
-        .presentationBackground(Color.clear)
+        .presentationBackground(selectedDetent == .large ? FColors.background : Color.clear)
     }
 }
 
 private struct WalletPickerRow: View {
     let wallet: Wallet
     let isSelected: Bool
+    var isCompact: Bool = false
     let action: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
@@ -1209,28 +1543,49 @@ private struct WalletPickerRow: View {
             .padding(FSpacing.md)
             .background(rowBackground)
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(
-                        isSelected ? FColors.brand : Color.clear,
-                        lineWidth: 2
-                    )
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(isSelected ? FColors.brand : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(EditorScaleButtonStyle())
+        .accessibilityLabel("\(wallet.name), balance: \(wallet.formattedBalance)")
+        .accessibilityValue(isSelected ? "Seleccionada" : "")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
     
     @ViewBuilder
     private var rowBackground: some View {
-        if #available(iOS 26.0, *) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.clear)
-                .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        if isCompact {
+            // Semi-transparente cuando está en .medium
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(colorScheme == .dark
+                    ? Color.white.opacity(0.06)
+                    : Color.black.opacity(0.03)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.08)
+                                : Color.black.opacity(0.05),
+                            lineWidth: 1
+                        )
+                )
         } else {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            // Sólido cuando está en .large
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(colorScheme == .dark ? FColors.backgroundSecondary : Color.white)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(
+                            colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.04),
+                    radius: 8,
+                    y: 4
                 )
         }
     }
@@ -1295,6 +1650,8 @@ private struct TransactionTypePillView: View {
         }
         .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel(pill.title)
+        .accessibilityValue(isSelected ? "Seleccionado" : "")
+        .accessibilityHint("Toca para seleccionar tipo \(pill.title)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -1307,18 +1664,18 @@ private struct TransactionTypePillView: View {
             }
 
             Text(pill.title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold, design: .rounded))
         }
         .foregroundStyle(foreground)
-        .padding(.horizontal, isSelected ? 16 : 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, isSelected ? 16 : EditorConstants.pillPaddingH)
+        .padding(.vertical, EditorConstants.pillPaddingV)
         .background(background)
-        .animation(Constants.Animation.quickSpring, value: isSelected)
+        .contentShape(Capsule())
+        .animation(EditorConstants.AnimationConfig.quick, value: isSelected)
     }
 
     private var foreground: Color {
         guard isSelected else { return .secondary }
-        // cuando está seleccionado, se lee bien sobre el glass tintado
         return colorScheme == .dark ? .white : .primary
     }
 
@@ -1328,13 +1685,11 @@ private struct TransactionTypePillView: View {
             if #available(iOS 26.0, *) {
                 Capsule()
                     .fill(.clear)
-                    // Tint dinámico tipo “premium glass”
                     .glassEffect(.regular.tint(tint.opacity(0.22)).interactive(), in: .capsule)
                     .matchedGeometryEffect(id: "selectedTypePill", in: namespace)
             } else {
                 Capsule()
                     .fill(.ultraThinMaterial)
-                    // overlay tint para que “se sienta” glass tintado también en < iOS 26
                     .overlay(
                         Capsule()
                             .fill(tint.opacity(colorScheme == .dark ? 0.18 : 0.14))
