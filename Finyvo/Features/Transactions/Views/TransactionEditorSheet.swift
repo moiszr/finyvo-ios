@@ -430,7 +430,7 @@ struct TransactionEditorSheet: View {
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
             )
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel("Fecha de la transacción")
         .accessibilityValue(dateDisplayText)
         .accessibilityHint("Toca para cambiar la fecha")
@@ -700,7 +700,7 @@ struct TransactionEditorSheet: View {
                 .background(tagsActionButtonBackground)
                 .contentShape(Circle())
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .animation(EditorConstants.AnimationConfig.quick, value: isTagInputEmpty)
         .accessibilityLabel(isTagInputEmpty ? "Cerrar" : "Agregar etiqueta")
         .accessibilityHint(isTagInputEmpty ? "Cierra el campo de etiquetas" : "Agrega la etiqueta escrita")
@@ -761,7 +761,7 @@ struct TransactionEditorSheet: View {
                 .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
                 .background(tagsToggleBackground)
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel("Agregar etiquetas")
         .accessibilityValue(selectedTags.isEmpty ? "Sin etiquetas" : "\(selectedTags.count) etiquetas")
         .accessibilityHint("Abre el selector de etiquetas")
@@ -803,7 +803,7 @@ struct TransactionEditorSheet: View {
             HStack(spacing: 6) {
                 Text(mode.isCreating ? "Crear" : "Guardar")
                     .font(.subheadline.weight(.semibold))
-                
+
                 Image(systemName: mode.isCreating ? "plus" : "checkmark")
                     .font(.system(size: 12, weight: .bold))
             }
@@ -811,13 +811,22 @@ struct TransactionEditorSheet: View {
             .frame(maxWidth: .infinity)
             .frame(height: EditorConstants.buttonHeight)
             .background(
-                Capsule()
-                    .fill(isValid ? typeColor : FColors.textTertiary.opacity(0.2))
+                Capsule().fill(
+                    isValid
+                        ? (colorScheme == .dark ? Color.white : Color.black)
+                        : (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08))
+                )
             )
-            .shadow(color: isValid ? typeColor.opacity(0.2) : .clear, radius: 6, y: 3)
+            .shadow(
+                color: isValid
+                    ? Color.black.opacity(colorScheme == .dark ? 0.12 : 0.25)
+                    : .clear,
+                radius: 8,
+                y: 4
+            )
         }
         .disabled(!isValid || isSaving)
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel(mode.isCreating ? "Crear transacción" : "Guardar cambios")
         .accessibilityHint(isValid ? "Guarda la transacción" : "Completa los campos requeridos primero")
     }
@@ -832,7 +841,7 @@ struct TransactionEditorSheet: View {
                 .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
                 .background(keyboardDismissBackground)
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel("Ocultar teclado")
     }
     
@@ -1076,7 +1085,7 @@ private struct CapsuleSelectorButton: View {
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
             )
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
     }
 }
 
@@ -1251,17 +1260,6 @@ private struct DatePickerSheet: View {
     }
 }
 
-// MARK: - Editor Scale Button Style
-
-private struct EditorScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.9 : 1)
-            .animation(EditorConstants.AnimationConfig.quick, value: configuration.isPressed)
-    }
-}
-
 // MARK: - Category Picker Sheet
 
 struct TransactionCategoryPickerSheet: View {
@@ -1393,7 +1391,7 @@ private struct CategoryPickerCard: View {
                     .stroke(isSelected ? category.color.color : Color.clear, lineWidth: 2)
             )
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel(category.name)
         .accessibilityValue(isSelected ? "Seleccionada" : "")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
@@ -1547,7 +1545,7 @@ private struct WalletPickerRow: View {
                     .stroke(isSelected ? FColors.brand : Color.clear, lineWidth: 2)
             )
         }
-        .buttonStyle(EditorScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         .accessibilityLabel("\(wallet.name), balance: \(wallet.formattedBalance)")
         .accessibilityValue(isSelected ? "Seleccionada" : "")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])

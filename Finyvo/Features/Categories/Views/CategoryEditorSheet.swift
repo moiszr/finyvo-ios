@@ -261,7 +261,7 @@ struct CategoryEditorSheet: View {
                             .offset(x: 4, y: 4)
                     }
                 }
-                .buttonStyle(EditorScaleButtonStyle())
+                .buttonStyle(ScaleButtonStyle())
 
                 // Name TextField
                 TextField("Nombre de categoría", text: $editor.name)
@@ -601,16 +601,6 @@ private struct KeywordChip: View {
                         .stroke(color.opacity(0.20), lineWidth: 1)
                 )
         )
-    }
-}
-
-// MARK: - Scale Button Style
-
-private struct EditorScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(Constants.Animation.quickSpring, value: configuration.isPressed)
     }
 }
 
