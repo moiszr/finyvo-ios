@@ -43,7 +43,7 @@ struct TransactionRowView: View {
     }
     
     // MARK: - Computed Properties
-    
+
     private var safeWalletName: String? {
         guard let wallet = transaction.wallet,
               !wallet.isArchived,
@@ -52,42 +52,7 @@ struct TransactionRowView: View {
         }
         return wallet.name
     }
-    
-    private var safeCurrencyCode: String {
-        if let code = transaction.currencyCode, !code.isEmpty {
-            return code
-        }
-        return transaction.wallet?.currencyCode ?? AppConfig.Defaults.currencyCode
-    }
-    
-    private var formattedAmount: String {
-        let prefix: String
-        switch transaction.type {
-        case .income: prefix = "+"
-        case .expense: prefix = "-"
-        case .transfer: prefix = ""
-        }
-        return "\(prefix)\(transaction.amount.asCurrency(code: safeCurrencyCode))"
-    }
-    
-    private var amountColor: Color {
-        switch transaction.type {
-        case .income: return FColors.green
-        case .expense: return FColors.textPrimary
-        case .transfer: return FColors.blue
-        }
-    }
-    
-    /// Subtitle text - shows "Transferencia" for transfers, category name otherwise
-    private var subtitleText: String? {
-        switch transaction.type {
-        case .transfer:
-            return "Transferencia"
-        case .income, .expense:
-            return transaction.category?.name
-        }
-    }
-    
+
     private var firstTag: Tag? {
         transaction.tags?.first
     }
@@ -154,7 +119,7 @@ struct TransactionRowView: View {
     
     private var subtitleRowView: some View {
         HStack(spacing: 4) {
-            if let subtitle = subtitleText {
+            if let subtitle = transaction.subtitleText {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(FColors.textSecondary)
@@ -162,7 +127,7 @@ struct TransactionRowView: View {
             }
             
             if showDate {
-                if subtitleText != nil {
+                if transaction.subtitleText != nil {
                     Text("•")
                         .font(.caption)
                         .foregroundStyle(FColors.textTertiary)
@@ -214,9 +179,9 @@ struct TransactionRowView: View {
     
     private var amountSectionView: some View {
         VStack(alignment: .trailing, spacing: 3) {
-            Text(formattedAmount)
+            Text(transaction.safeFormattedSignedAmount)
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(amountColor)
+                .foregroundStyle(transaction.amountDisplayColor)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -271,42 +236,7 @@ struct TransactionRowCompact: View {
     var onTap: (() -> Void)?
     
     @Environment(\.colorScheme) private var colorScheme
-    
-    private var safeCurrencyCode: String {
-        if let code = transaction.currencyCode, !code.isEmpty {
-            return code
-        }
-        return transaction.wallet?.currencyCode ?? AppConfig.Defaults.currencyCode
-    }
-    
-    private var formattedAmount: String {
-        let prefix: String
-        switch transaction.type {
-        case .income: prefix = "+"
-        case .expense: prefix = "-"
-        case .transfer: prefix = ""
-        }
-        return "\(prefix)\(transaction.amount.asCurrency(code: safeCurrencyCode))"
-    }
-    
-    private var amountColor: Color {
-        switch transaction.type {
-        case .income: return FColors.green
-        case .expense: return FColors.textPrimary
-        case .transfer: return FColors.blue
-        }
-    }
-    
-    /// Subtitle for compact row - "Transferencia" for transfers
-    private var subtitleText: String? {
-        switch transaction.type {
-        case .transfer:
-            return "Transferencia"
-        case .income, .expense:
-            return transaction.category?.name
-        }
-    }
-    
+
     var body: some View {
         Button {
             Constants.Haptic.light()
@@ -342,7 +272,7 @@ struct TransactionRowCompact: View {
                 .foregroundStyle(FColors.textPrimary)
                 .lineLimit(1)
             
-            if let subtitle = subtitleText {
+            if let subtitle = transaction.subtitleText {
                 Text(subtitle)
                     .font(.caption2)
                     .foregroundStyle(FColors.textTertiary)
@@ -350,11 +280,11 @@ struct TransactionRowCompact: View {
             }
         }
     }
-    
+
     private var amountTextView: some View {
-        Text(formattedAmount)
+        Text(transaction.safeFormattedSignedAmount)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(amountColor)
+            .foregroundStyle(transaction.amountDisplayColor)
             .monospacedDigit()
             .lineLimit(1)
     }

@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 extension Transaction {
     
@@ -81,5 +82,26 @@ extension Transaction {
     var walletIconName: String {
         guard let wallet = wallet else { return "creditcard.fill" }
         return wallet.systemImageName
+    }
+
+    // MARK: - Row Display Properties
+
+    /// Subtitle para filas: "Transferencia" para transfers, nombre de categoría para otros
+    var subtitleText: String? {
+        switch type {
+        case .transfer:
+            return "Transferencia"
+        case .income, .expense:
+            return category?.name
+        }
+    }
+
+    /// Color del monto según tipo de transacción
+    var amountDisplayColor: Color {
+        switch type {
+        case .income: return FColors.green
+        case .expense: return FColors.textPrimary
+        case .transfer: return FColors.blue
+        }
     }
 }         

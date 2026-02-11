@@ -12,51 +12,53 @@ import SwiftData
 // MARK: - Transaction Filters Sheet
 
 struct TransactionFiltersSheet: View {
-    
+
     // MARK: - Properties
-    
+
     @Binding var filter: TransactionFilter
-    
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    
+
     // MARK: - Local State
-    
+
     @State private var localFilter: TransactionFilter
     @State private var showCustomDatePicker = false
-    
+
     // Queries
     @Query(filter: #Predicate<Wallet> { !$0.isArchived })
     private var wallets: [Wallet]
-    
+
     @Query(filter: #Predicate<Category> { !$0.isArchived })
     private var categories: [Category]
-    
+
     @Query
     private var tags: [Tag]
-    
+
+    private var isDark: Bool { colorScheme == .dark }
+
     init(filter: Binding<TransactionFilter>) {
         _filter = filter
         _localFilter = State(initialValue: filter.wrappedValue)
     }
-    
+
     // MARK: - Body
-    
+
     var body: some View {
         NavigationStack {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: FSpacing.xl) {
                     dateRangeSection
                     amountRangeSection
-                    
+
                     if !wallets.isEmpty {
                         walletsSection
                     }
-                    
+
                     if !categories.isEmpty {
                         categoriesSection
                     }
-                    
+
                     if !tags.isEmpty {
                         tagsSection
                     }
@@ -69,39 +71,73 @@ struct TransactionFiltersSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .safeAreaInset(edge: .bottom) {
-                applyButton
+                bottomActionBar
             }
         }
         .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .presentationDragIndicator(.hidden)
         .presentationBackground(FColors.background)
     }
-    
+
     // MARK: - Date Range Section
-    
+
     private var dateRangeSection: some View {
         VStack(alignment: .leading, spacing: FSpacing.sm) {
             FilterSectionHeader(title: "Período", icon: "calendar")
-            
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: FSpacing.sm) {
+
+            FlowLayout(spacing: FSpacing.sm) {
                 ForEach(DateRange.allCases, id: \.rawValue) { range in
-                    FilterDateRangeOption(
-                        title: range.shortTitle,
-                        isSelected: localFilter.dateRange == range
-                    ) {
-                        localFilter.dateRange = range
-                        showCustomDatePicker = range == .custom
-                    }
+                    dateRangePill(range)
                 }
             }
-            
+
             if showCustomDatePicker || localFilter.dateRange == .custom {
                 customDatePickers
             }
         }
         .animation(Constants.Animation.defaultSpring, value: showCustomDatePicker)
     }
-    
+
+    private func dateRangePill(_ range: DateRange) -> some View {
+        let isSelected = localFilter.dateRange == range
+
+        return Button {
+            Constants.Haptic.selection()
+            localFilter.dateRange = range
+            showCustomDatePicker = range == .custom
+        } label: {
+            Text(range.shortTitle)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(isSelected ? (isDark ? .white : .primary) : .secondary)
+                .padding(.horizontal, TransactionUI.pillPaddingH)
+                .padding(.vertical, TransactionUI.pillPaddingV)
+                .background {
+                    if isSelected {
+                        dateRangePillSelectedBackground
+                    } else {
+                        Capsule()
+                            .fill(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    }
+                }
+        }
+        .buttonStyle(ScaleButtonStyle())
+        .animation(Constants.Animation.quickSpring, value: isSelected)
+    }
+
+    @ViewBuilder
+    private var dateRangePillSelectedBackground: some View {
+        if #available(iOS 26.0, *) {
+            Capsule()
+                .fill(.clear)
+                .glassEffect(.regular.tint(FColors.brand.opacity(0.2)).interactive(), in: .capsule)
+        } else {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(Capsule().fill(FColors.brand.opacity(isDark ? 0.18 : 0.14)))
+                .overlay(Capsule().stroke(FColors.brand.opacity(isDark ? 0.25 : 0.18), lineWidth: 1))
+        }
+    }
+
     private var customDatePickers: some View {
         VStack(spacing: FSpacing.md) {
             DatePicker(
@@ -112,7 +148,7 @@ struct TransactionFiltersSheet: View {
                 ),
                 displayedComponents: .date
             )
-            
+
             DatePicker(
                 "Hasta",
                 selection: Binding(
@@ -122,27 +158,25 @@ struct TransactionFiltersSheet: View {
                 displayedComponents: .date
             )
         }
-        .padding(FSpacing.md)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(cardBorder)
+        .padding(FSpacing.lg)
+        .background(GlassCardBackground())
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
-    
+
     // MARK: - Amount Range Section
-    
+
     private var amountRangeSection: some View {
         VStack(alignment: .leading, spacing: FSpacing.sm) {
             FilterSectionHeader(title: "Monto", icon: "dollarsign.circle")
-            
+
             VStack(spacing: FSpacing.md) {
                 HStack {
                     Text("Mínimo")
-                        .font(.subheadline)
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(FColors.textSecondary)
-                    
+
                     Spacer()
-                    
+
                     TextField("0", value: $localFilter.minAmount, format: .currency(code: AppConfig.Defaults.currencyCode))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FColors.textPrimary)
@@ -150,16 +184,18 @@ struct TransactionFiltersSheet: View {
                         .multilineTextAlignment(.trailing)
                         .frame(width: 120)
                 }
-                
-                Divider()
-                
+
+                Rectangle()
+                    .fill(.secondary.opacity(0.15))
+                    .frame(height: 0.5)
+
                 HStack {
                     Text("Máximo")
-                        .font(.subheadline)
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(FColors.textSecondary)
-                    
+
                     Spacer()
-                    
+
                     TextField("Sin límite", value: $localFilter.maxAmount, format: .currency(code: AppConfig.Defaults.currencyCode))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FColors.textPrimary)
@@ -168,20 +204,18 @@ struct TransactionFiltersSheet: View {
                         .frame(width: 120)
                 }
             }
-            .padding(FSpacing.md)
-            .background(cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(cardBorder)
+            .padding(FSpacing.lg)
+            .background(GlassCardBackground())
         }
     }
-    
+
     // MARK: - Wallets Section
-    
+
     private var walletsSection: some View {
         VStack(alignment: .leading, spacing: FSpacing.sm) {
             FilterSectionHeader(title: "Billeteras", icon: "wallet.pass")
-            
-            FlowLayout(spacing: 8) {
+
+            FlowLayout(spacing: FSpacing.sm) {
                 ForEach(wallets, id: \.id) { wallet in
                     FilterChipView(
                         title: wallet.name,
@@ -195,14 +229,14 @@ struct TransactionFiltersSheet: View {
             }
         }
     }
-    
+
     // MARK: - Categories Section
-    
+
     private var categoriesSection: some View {
         VStack(alignment: .leading, spacing: FSpacing.sm) {
             FilterSectionHeader(title: "Categorías", icon: "square.grid.2x2")
-            
-            FlowLayout(spacing: 8) {
+
+            FlowLayout(spacing: FSpacing.sm) {
                 ForEach(categories, id: \.id) { category in
                     FilterChipView(
                         title: category.name,
@@ -216,14 +250,14 @@ struct TransactionFiltersSheet: View {
             }
         }
     }
-    
+
     // MARK: - Tags Section
-    
+
     private var tagsSection: some View {
         VStack(alignment: .leading, spacing: FSpacing.sm) {
             FilterSectionHeader(title: "Etiquetas", icon: "tag")
-            
-            FlowLayout(spacing: 8) {
+
+            FlowLayout(spacing: FSpacing.sm) {
                 ForEach(tags, id: \.id) { tag in
                     FilterChipView(
                         title: tag.displayName,
@@ -237,61 +271,76 @@ struct TransactionFiltersSheet: View {
             }
         }
     }
-    
-    // MARK: - Apply Button
-    
-    private var applyButton: some View {
-        Button {
-            applyFilters()
-        } label: {
-            Text("Aplicar filtros")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(FColors.brand)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+    // MARK: - Bottom Action Bar
+
+    private var bottomActionBar: some View {
+        HStack(spacing: 12) {
+            if localFilter.hasActiveFilters {
+                Button {
+                    Constants.Haptic.selection()
+                    localFilter.reset()
+                    showCustomDatePicker = false
+                } label: {
+                    Text("Limpiar")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(FColors.red)
+                        .frame(height: TransactionUI.buttonHeight)
+                        .padding(.horizontal, FSpacing.lg)
+                        .background(
+                            Capsule()
+                                .fill(isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
+                        )
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+
+            Button {
+                applyFilters()
+            } label: {
+                Text("Aplicar filtros")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(isDark ? .black : .white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: TransactionUI.buttonHeight)
+                    .background(
+                        Capsule()
+                            .fill(isDark ? Color.white : Color.black)
+                            .shadow(color: Color.black.opacity(isDark ? 0.12 : 0.25), radius: 8, y: 4)
+                    )
+            }
+            .buttonStyle(ScaleButtonStyle())
         }
         .padding(.horizontal, FSpacing.lg)
-        .padding(.vertical, FSpacing.md)
+        .padding(.vertical, FSpacing.sm)
         .background(.ultraThinMaterial)
+        .animation(Constants.Animation.quickSpring, value: localFilter.hasActiveFilters)
     }
-    
+
     // MARK: - Toolbar
-    
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(FColors.textPrimary)
-            }
-        }
-        
         ToolbarItem(placement: .principal) {
             Text("Filtros")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(FColors.textPrimary)
         }
-        
-        ToolbarItem(placement: .primaryAction) {
-            if localFilter.hasActiveFilters {
-                Button {
-                    localFilter.reset()
-                } label: {
-                    Text("Limpiar")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(FColors.red)
-                }
+
+        ToolbarItem(placement: .confirmationAction) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(FColors.textSecondary)
             }
         }
     }
-    
+
     // MARK: - Actions
-    
+
     private func toggleWallet(_ wallet: Wallet) {
         Constants.Haptic.selection()
         if localFilter.walletIDs.contains(wallet.id) {
@@ -300,7 +349,7 @@ struct TransactionFiltersSheet: View {
             localFilter.walletIDs.insert(wallet.id)
         }
     }
-    
+
     private func toggleCategory(_ category: Category) {
         Constants.Haptic.selection()
         if localFilter.categoryIDs.contains(category.id) {
@@ -309,7 +358,7 @@ struct TransactionFiltersSheet: View {
             localFilter.categoryIDs.insert(category.id)
         }
     }
-    
+
     private func toggleTag(_ tag: Tag) {
         Constants.Haptic.selection()
         if localFilter.tagIDs.contains(tag.id) {
@@ -318,26 +367,11 @@ struct TransactionFiltersSheet: View {
             localFilter.tagIDs.insert(tag.id)
         }
     }
-    
+
     private func applyFilters() {
         Constants.Haptic.success()
         filter = localFilter
         dismiss()
-    }
-    
-    // MARK: - Helpers
-    
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(colorScheme == .dark ? FColors.backgroundSecondary : Color.white)
-    }
-    
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(
-                colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04),
-                lineWidth: 1
-            )
     }
 }
 
@@ -346,50 +380,18 @@ struct TransactionFiltersSheet: View {
 private struct FilterSectionHeader: View {
     let title: String
     let icon: String
-    
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(FColors.textTertiary)
-            
+
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(FColors.textSecondary)
         }
         .padding(.horizontal, 4)
-    }
-}
-
-// MARK: - Filter Date Range Option
-
-private struct FilterDateRangeOption: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        Button(action: {
-            Constants.Haptic.selection()
-            action()
-        }) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(isSelected ? (colorScheme == .dark ? .black : .white) : FColors.textSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(
-                            isSelected
-                            ? FColors.textPrimary
-                            : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-                        )
-                )
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -401,13 +403,15 @@ private struct FilterChipView: View {
     let color: Color
     let isSelected: Bool
     let action: () -> Void
-    
+
     @Environment(\.colorScheme) private var colorScheme
-    
+
+    private var isDark: Bool { colorScheme == .dark }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                if let icon = icon {
+                if let icon {
                     Image(systemName: icon)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(isSelected ? .white : color)
@@ -416,24 +420,36 @@ private struct FilterChipView: View {
                         .fill(isSelected ? .white : color)
                         .frame(width: 8, height: 8)
                 }
-                
+
                 Text(title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(isSelected ? .white : FColors.textPrimary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule()
-                    .fill(
-                        isSelected
-                        ? color
-                        : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-                    )
-            )
+            .padding(.horizontal, TransactionUI.pillPaddingH)
+            .padding(.vertical, TransactionUI.pillPaddingV)
+            .background {
+                if isSelected {
+                    chipSelectedBackground
+                } else {
+                    Capsule()
+                        .fill(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ScaleButtonStyle())
         .animation(Constants.Animation.quickSpring, value: isSelected)
+    }
+
+    @ViewBuilder
+    private var chipSelectedBackground: some View {
+        if #available(iOS 26.0, *) {
+            Capsule()
+                .fill(color)
+                .glassEffect(.regular.tint(color.opacity(0.15)), in: .capsule)
+        } else {
+            Capsule()
+                .fill(color)
+        }
     }
 }
 

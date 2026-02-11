@@ -13,21 +13,11 @@ import SwiftData
 // MARK: - Constants
 
 private enum DC {
-    static let mainFont: CGFloat     = 28
     static let catFont: CGFloat      = 13
     static let catIconFont: CGFloat  = 12
-
     static let refFont: CGFloat      = 11
-    static let actionH: CGFloat      = 48
-
-    static let cardRadius: CGFloat   = 24
-    static let pillPadH: CGFloat     = 14
-    static let pillPadV: CGFloat     = 10
-
     static let hPad: CGFloat         = 22
     static let gap: CGFloat          = 14
-
-    static let quick    = Animation.spring(response: 0.35, dampingFraction: 0.8)
     static let entrance = Animation.spring(response: 0.5, dampingFraction: 0.84)
 }
 
@@ -148,12 +138,13 @@ struct TransactionDetailSheet: View {
     private var computedDetentFraction: CGFloat {
         var f: CGFloat = 0.58  // antes 0.62
 
-        if titleStyle.useLineLimit2 { f += 0.04 }
+        if titleStyle.useLineLimit2 { f += 0.06 }
 
         if !tags.isEmpty {
             f += 0.06
-            if tags.count >= 6 { f += 0.02 }
-            if tags.count >= 10 { f += 0.02 }
+            if tags.count >= 4 { f += 0.06 }
+            if tags.count >= 7 { f += 0.06 }
+            if tags.count >= 10 { f += 0.06 }
         }
 
         if transaction.type == .transfer { f += 0.01 }
@@ -249,22 +240,8 @@ struct TransactionDetailSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(typePillBackground)
+        .background(TransactionTypePillBackground(tint: typeColor))
         .contentShape(Capsule())
-    }
-
-    @ViewBuilder
-    private var typePillBackground: some View {
-        if #available(iOS 26.0, *) {
-            Capsule()
-                .fill(.clear)
-                .glassEffect(.regular.tint(typeColor.opacity(0.22)).interactive(), in: .capsule)
-        } else {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(Capsule().fill(typeColor.opacity(isDark ? 0.18 : 0.14)))
-                .overlay(Capsule().stroke(typeColor.opacity(isDark ? 0.25 : 0.18), lineWidth: 1))
-        }
     }
 
     // MARK: - Unified Detail Card (Editor-based)
@@ -285,7 +262,7 @@ struct TransactionDetailSheet: View {
                     .minimumScaleFactor(titleStyle.minScale)
 
                 Text(transaction.formattedAmount)
-                    .font(.system(size: DC.mainFont, weight: .bold, design: .rounded))
+                    .font(.system(size: TransactionUI.mainFontSize, weight: .bold, design: .rounded))
                     .foregroundStyle(typeColor)
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -293,14 +270,14 @@ struct TransactionDetailSheet: View {
 
             // Pills abajo: wallet + category/destino
             HStack(spacing: FSpacing.sm) {
-                DetailCapsulePill(
+                TransactionCapsulePill(
                     icon: walletIcon,
                     iconColor: walletIconColor,
                     title: walletTitle,
                     isPlaceholder: transaction.wallet == nil
                 )
 
-                DetailCapsulePill(
+                TransactionCapsulePill(
                     icon: categoryIcon,
                     iconColor: categoryIconColor,
                     title: categoryTitle,
@@ -326,57 +303,23 @@ struct TransactionDetailSheet: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(FColors.textPrimary)
         }
-        .padding(.horizontal, DC.pillPadH)
-        .padding(.vertical, DC.pillPadV)
+        .padding(.horizontal, TransactionUI.pillPaddingH)
+        .padding(.vertical, TransactionUI.pillPaddingV)
         .background(
             Capsule().fill(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
         )
     }
 
-    @ViewBuilder
     private var glassCardBackground: some View {
-        if #available(iOS 26.0, *) {
-            RoundedRectangle(cornerRadius: DC.cardRadius, style: .continuous)
-                .fill(.clear)
-                .glassEffect(.regular, in: .rect(cornerRadius: DC.cardRadius))
-        } else {
-            RoundedRectangle(cornerRadius: DC.cardRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DC.cardRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: isDark
-                                    ? [Color.white.opacity(0.08), Color.white.opacity(0.02)]
-                                    : [Color.white.opacity(0.7), Color.white.opacity(0.4)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: DC.cardRadius, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: isDark
-                                    ? [Color.white.opacity(0.15), Color.white.opacity(0.05)]
-                                    : [Color.white.opacity(0.8), Color.black.opacity(0.05)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: Color.black.opacity(isDark ? 0.3 : 0.08), radius: 20, y: 8)
-        }
+        GlassCardBackground()
     }
 
     // MARK: - Tags (FlowLayout, no scroll)
 
     private var tagsSection: some View {
-        FlowLayout(spacing: 8) {
+        FlowLayout(spacing: FSpacing.sm) {
             ForEach(tags, id: \.id) { tag in
-                DetailTagChip(tag: tag)
+                TransactionTagChip(tag: tag)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -402,8 +345,8 @@ struct TransactionDetailSheet: View {
                 Image(systemName: "trash")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(FColors.red)
-                    .frame(width: DC.actionH, height: DC.actionH)
-                    .modifier(LiquidCircleMod(tint: FColors.red.opacity(0.08)))
+                    .frame(width: TransactionUI.buttonHeight, height: TransactionUI.buttonHeight)
+                    .liquidCircle(tint: FColors.red.opacity(0.08))
             }
             .buttonStyle(ScaleButtonStyle())
 
@@ -416,8 +359,8 @@ struct TransactionDetailSheet: View {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(FColors.textSecondary)
-                    .frame(width: DC.actionH, height: DC.actionH)
-                    .modifier(LiquidCircleMod())
+                    .frame(width: TransactionUI.buttonHeight, height: TransactionUI.buttonHeight)
+                    .liquidCircle()
             }
             .buttonStyle(ScaleButtonStyle())
 
@@ -436,98 +379,11 @@ struct TransactionDetailSheet: View {
                 }
                 .foregroundStyle(isDark ? .black : .white)
                 .frame(maxWidth: .infinity)
-                .frame(height: DC.actionH)
+                .frame(height: TransactionUI.buttonHeight)
                 .background(Capsule().fill(isDark ? Color.white : Color.black))
                 .shadow(color: Color.black.opacity(isDark ? 0.12 : 0.25), radius: 8, y: 4)
             }
             .buttonStyle(ScaleButtonStyle())
-        }
-    }
-}
-
-// MARK: - Detail Capsule Pill (Read-only CapsuleSelectorButton style)
-
-private struct DetailCapsulePill: View {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    var isPlaceholder: Bool = false
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(iconColor)
-
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(isPlaceholder ? FColors.textTertiary : FColors.textPrimary)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-        )
-        .fixedSize(horizontal: true, vertical: false) // ✅ ancho intrínseco del contenido
-    }
-}
-
-// MARK: - Liquid Circle Modifier
-
-private struct LiquidCircleMod: ViewModifier {
-    var tint: Color? = nil
-    @Environment(\.colorScheme) private var cs
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.background {
-                Circle().fill(.clear)
-                    .glassEffect(.regular.tint(tint ?? .clear), in: .circle)
-            }
-        } else {
-            let dark = cs == .dark
-            let fill = tint ?? (dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-            let border: Color = dark ? .white.opacity(0.12) : .black.opacity(0.06)
-            content
-                .background(Circle().fill(fill))
-                .overlay(Circle().stroke(border, lineWidth: 0.5))
-        }
-    }
-}
-
-// MARK: - Detail Tag Chip
-
-private struct DetailTagChip: View {
-    let tag: Tag
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(tag.color.color)
-                .frame(width: 8, height: 8)
-            Text(tag.displayName)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(FColors.textPrimary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(chipBg)
-    }
-
-    @ViewBuilder
-    private var chipBg: some View {
-        if #available(iOS 26.0, *) {
-            Capsule().fill(.clear)
-                .glassEffect(.regular.tint(tag.color.color.opacity(0.2)), in: .capsule)
-        } else {
-            let dark = colorScheme == .dark
-            Capsule()
-                .fill(tag.color.color.opacity(dark ? 0.15 : 0.1))
-                .overlay(Capsule().stroke(tag.color.color.opacity(0.2), lineWidth: 1))
         }
     }
 }

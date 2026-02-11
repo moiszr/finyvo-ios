@@ -21,20 +21,14 @@ internal import Combine
 // MARK: - Editor Constants
 
 private enum EditorConstants {
-    static let mainFontSize: CGFloat = 28
     static let iconSizeSmall: CGFloat = 10
     static let iconSizeMedium: CGFloat = 14
     static let iconSizeLarge: CGFloat = 16
-    static let buttonHeight: CGFloat = 48
-    static let cardCornerRadius: CGFloat = 24
-    static let chipCornerRadius: CGFloat = 14
-    static let pillPaddingH: CGFloat = 14
-    static let pillPaddingV: CGFloat = 10
     static let focusDelay: UInt64 = 400_000_000 // 400ms in nanoseconds
-    
+
     enum AnimationConfig {
         static let keyboard = Animation.interpolatingSpring(stiffness: 300, damping: 30)
-        static let quick = Animation.spring(response: 0.35, dampingFraction: 0.8)
+        static let quick = TransactionUI.quickAnimation
         static let breathing = Animation.spring(response: 0.4, dampingFraction: 0.8)
     }
 }
@@ -362,46 +356,8 @@ struct TransactionEditorSheet: View {
         .animation(EditorConstants.AnimationConfig.breathing, value: focusedField != nil)
     }
     
-    @ViewBuilder
     private var glassCardBackground: some View {
-        if #available(iOS 26.0, *) {
-            RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
-                .fill(.clear)
-                .glassEffect(.regular, in: .rect(cornerRadius: EditorConstants.cardCornerRadius))
-        } else {
-            RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: colorScheme == .dark
-                                    ? [Color.white.opacity(0.08), Color.white.opacity(0.02)]
-                                    : [Color.white.opacity(0.7), Color.white.opacity(0.4)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: EditorConstants.cardCornerRadius, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: colorScheme == .dark
-                                    ? [Color.white.opacity(0.15), Color.white.opacity(0.05)]
-                                    : [Color.white.opacity(0.8), Color.black.opacity(0.05)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(
-                    color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.08),
-                    radius: 20,
-                    y: 8
-                )
-        }
+        GlassCardBackground()
     }
     
     // MARK: - Date Button (Capsule)
@@ -423,8 +379,8 @@ struct TransactionEditorSheet: View {
                     .font(.system(size: EditorConstants.iconSizeSmall, weight: .bold))
                     .foregroundStyle(FColors.textTertiary)
             }
-            .padding(.horizontal, EditorConstants.pillPaddingH)
-            .padding(.vertical, EditorConstants.pillPaddingV)
+            .padding(.horizontal, TransactionUI.pillPaddingH)
+            .padding(.vertical, TransactionUI.pillPaddingV)
             .background(
                 Capsule()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
@@ -453,7 +409,7 @@ struct TransactionEditorSheet: View {
     
     private var noteField: some View {
         TextField("Descripción", text: $note)
-            .font(.system(size: EditorConstants.mainFontSize, weight: .bold, design: .rounded))
+            .font(.system(size: TransactionUI.mainFontSize, weight: .bold, design: .rounded))
             .foregroundStyle(FColors.textPrimary)
             .multilineTextAlignment(.leading)
             .focused($focusedField, equals: .note)
@@ -471,14 +427,14 @@ struct TransactionEditorSheet: View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             if hasAmountValue {
                 Text(currencySymbol)
-                    .font(.system(size: EditorConstants.mainFontSize, weight: .bold, design: .rounded))
+                    .font(.system(size: TransactionUI.mainFontSize, weight: .bold, design: .rounded))
                     .foregroundStyle(typeColor)
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     .accessibilityHidden(true)
             }
             
             TextField("Monto", text: $amountText)
-                .font(.system(size: EditorConstants.mainFontSize, weight: .bold, design: .rounded))
+                .font(.system(size: TransactionUI.mainFontSize, weight: .bold, design: .rounded))
                 .foregroundStyle(hasAmountValue ? typeColor : FColors.textTertiary)
                 .keyboardType(.decimalPad)
                 .focused($focusedField, equals: .amount)
@@ -499,7 +455,7 @@ struct TransactionEditorSheet: View {
     
     private var selectorsRow: some View {
         HStack(spacing: FSpacing.sm) {
-            CapsuleSelectorButton(
+            TransactionCapsulePill(
                 icon: selectedWallet?.icon.rawValue ?? "wallet.pass.fill",
                 iconColor: selectedWallet?.color.color ?? FColors.textTertiary,
                 title: selectedWallet?.name ?? "Billetera",
@@ -510,9 +466,9 @@ struct TransactionEditorSheet: View {
             .accessibilityLabel("Billetera")
             .accessibilityValue(selectedWallet?.name ?? "No seleccionada")
             .accessibilityHint("Toca para seleccionar una billetera")
-            
+
             if selectedType != .transfer {
-                CapsuleSelectorButton(
+                TransactionCapsulePill(
                     icon: selectedCategory?.icon.rawValue ?? "square.grid.2x2.fill",
                     iconColor: selectedCategory?.color.color ?? FColors.textTertiary,
                     title: selectedCategory?.name ?? "Categoría",
@@ -524,7 +480,7 @@ struct TransactionEditorSheet: View {
                 .accessibilityValue(selectedCategory?.name ?? "No seleccionada")
                 .accessibilityHint("Toca para seleccionar una categoría")
             } else {
-                CapsuleSelectorButton(
+                TransactionCapsulePill(
                     icon: selectedDestinationWallet?.icon.rawValue ?? "wallet.pass.fill",
                     iconColor: selectedDestinationWallet?.color.color ?? FColors.textTertiary,
                     title: selectedDestinationWallet?.name ?? "Destino",
@@ -542,19 +498,17 @@ struct TransactionEditorSheet: View {
     // MARK: - Selected Tags Row
     
     private var selectedTagsRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: FSpacing.sm) {
-                ForEach(selectedTags) { tag in
-                    GlassTagChip(tag: tag) {
-                        withAnimation(EditorConstants.AnimationConfig.quick) {
-                            selectedTags.removeAll { $0.id == tag.id }
-                        }
-                        Constants.Haptic.light()
+        FlowLayout(spacing: FSpacing.sm) {
+            ForEach(selectedTags) { tag in
+                TransactionTagChip(tag: tag) {
+                    withAnimation(EditorConstants.AnimationConfig.quick) {
+                        selectedTags.removeAll { $0.id == tag.id }
                     }
+                    Constants.Haptic.light()
                 }
             }
         }
-        .scrollClipDisabled()
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Etiquetas seleccionadas: \(selectedTags.count)")
     }
@@ -665,7 +619,7 @@ struct TransactionEditorSheet: View {
                 .accessibilityLabel("Nombre de la etiqueta")
                 .accessibilityHint("Escribe el nombre de una nueva etiqueta o busca existentes")
         }
-        .frame(height: EditorConstants.buttonHeight)
+        .frame(height: TransactionUI.buttonHeight)
         .background(tagsInputBackground)
     }
     
@@ -696,7 +650,7 @@ struct TransactionEditorSheet: View {
             Image(systemName: isTagInputEmpty ? "xmark" : "plus")
                 .font(.system(size: EditorConstants.iconSizeLarge, weight: .bold))
                 .foregroundStyle(isTagInputEmpty ? FColors.textSecondary : .white)
-                .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
+                .frame(width: TransactionUI.buttonHeight, height: TransactionUI.buttonHeight)
                 .background(tagsActionButtonBackground)
                 .contentShape(Circle())
         }
@@ -758,7 +712,7 @@ struct TransactionEditorSheet: View {
             Image(systemName: "tag.fill")
                 .font(.system(size: EditorConstants.iconSizeLarge, weight: .semibold))
                 .foregroundStyle(!selectedTags.isEmpty ? FColors.brand : FColors.textSecondary)
-                .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
+                .frame(width: TransactionUI.buttonHeight, height: TransactionUI.buttonHeight)
                 .background(tagsToggleBackground)
         }
         .buttonStyle(ScaleButtonStyle())
@@ -809,7 +763,7 @@ struct TransactionEditorSheet: View {
             }
             .foregroundStyle(isValid ? (colorScheme == .dark ? .black : .white) : FColors.textTertiary)
             .frame(maxWidth: .infinity)
-            .frame(height: EditorConstants.buttonHeight)
+            .frame(height: TransactionUI.buttonHeight)
             .background(
                 Capsule().fill(
                     isValid
@@ -838,7 +792,7 @@ struct TransactionEditorSheet: View {
             Image(systemName: "keyboard.chevron.compact.down")
                 .font(.system(size: EditorConstants.iconSizeLarge, weight: .semibold))
                 .foregroundStyle(FColors.textSecondary)
-                .frame(width: EditorConstants.buttonHeight, height: EditorConstants.buttonHeight)
+                .frame(width: TransactionUI.buttonHeight, height: TransactionUI.buttonHeight)
                 .background(keyboardDismissBackground)
         }
         .buttonStyle(ScaleButtonStyle())
@@ -1049,98 +1003,6 @@ struct TransactionEditorSheet: View {
     }
 }
 
-// MARK: - Capsule Selector Button
-
-private struct CapsuleSelectorButton: View {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    var isPlaceholder: Bool = false
-    let action: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        Button {
-            action()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold))
-                    .foregroundStyle(iconColor)
-                
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(isPlaceholder ? FColors.textTertiary : FColors.textPrimary)
-                    .lineLimit(1)
-                
-                Image(systemName: "chevron.down")
-                    .font(.system(size: EditorConstants.iconSizeSmall, weight: .bold))
-                    .foregroundStyle(FColors.textTertiary)
-            }
-            .padding(.horizontal, EditorConstants.pillPaddingH)
-            .padding(.vertical, EditorConstants.pillPaddingV)
-            .background(
-                Capsule()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-            )
-        }
-        .buttonStyle(ScaleButtonStyle())
-    }
-}
-
-// MARK: - Glass Tag Chip
-
-private struct GlassTagChip: View {
-    let tag: Tag
-    let onRemove: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(tag.color.color)
-                .frame(width: 8, height: 8)
-            
-            Text(tag.displayName)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(FColors.textPrimary)
-            
-            Button {
-                onRemove()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: EditorConstants.iconSizeSmall, weight: .bold))
-                    .foregroundStyle(FColors.textTertiary)
-            }
-            .accessibilityLabel("Eliminar etiqueta \(tag.displayName)")
-        }
-        .padding(.horizontal, EditorConstants.pillPaddingH)
-        .padding(.vertical, EditorConstants.pillPaddingV)
-        .background(chipBackground)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Etiqueta: \(tag.displayName)")
-        .accessibilityHint("Toca la X para eliminar")
-    }
-    
-    @ViewBuilder
-    private var chipBackground: some View {
-        if #available(iOS 26.0, *) {
-            Capsule()
-                .fill(.clear)
-                .glassEffect(.regular.tint(tag.color.color.opacity(0.2)), in: .capsule)
-        } else {
-            Capsule()
-                .fill(tag.color.color.opacity(colorScheme == .dark ? 0.15 : 0.1))
-                .overlay(
-                    Capsule()
-                        .stroke(tag.color.color.opacity(0.2), lineWidth: 1)
-                )
-        }
-    }
-}
-
 // MARK: - Selectable Tag Chip
 
 private struct SelectableTagChip: View {
@@ -1161,8 +1023,8 @@ private struct SelectableTagChip: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(isSelected ? selectedTextColor : FColors.textPrimary)
             }
-            .padding(.horizontal, EditorConstants.pillPaddingH)
-            .padding(.vertical, EditorConstants.pillPaddingV)
+            .padding(.horizontal, TransactionUI.pillPaddingH)
+            .padding(.vertical, TransactionUI.pillPaddingV)
             .background(chipBackground)
         }
         .buttonStyle(.plain)
@@ -1665,8 +1527,8 @@ private struct TransactionTypePillView: View {
                 .font(.system(size: EditorConstants.iconSizeMedium, weight: .semibold, design: .rounded))
         }
         .foregroundStyle(foreground)
-        .padding(.horizontal, isSelected ? 16 : EditorConstants.pillPaddingH)
-        .padding(.vertical, EditorConstants.pillPaddingV)
+        .padding(.horizontal, isSelected ? 16 : TransactionUI.pillPaddingH)
+        .padding(.vertical, TransactionUI.pillPaddingV)
         .background(background)
         .contentShape(Capsule())
         .animation(EditorConstants.AnimationConfig.quick, value: isSelected)
@@ -1677,31 +1539,12 @@ private struct TransactionTypePillView: View {
         return colorScheme == .dark ? .white : .primary
     }
 
-    @ViewBuilder
     private var background: some View {
-        if isSelected {
-            if #available(iOS 26.0, *) {
-                Capsule()
-                    .fill(.clear)
-                    .glassEffect(.regular.tint(tint.opacity(0.22)).interactive(), in: .capsule)
-                    .matchedGeometryEffect(id: "selectedTypePill", in: namespace)
-            } else {
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule()
-                            .fill(tint.opacity(colorScheme == .dark ? 0.18 : 0.14))
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(
-                                tint.opacity(colorScheme == .dark ? 0.25 : 0.18),
-                                lineWidth: 1
-                            )
-                    )
-                    .matchedGeometryEffect(id: "selectedTypePill", in: namespace)
-            }
-        }
+        TransactionTypePillBackground(
+            tint: tint,
+            isSelected: isSelected,
+            namespace: namespace
+        )
     }
 }
 
