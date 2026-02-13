@@ -21,9 +21,11 @@ import SwiftData
 struct TransactionsView: View {
     
     // MARK: - Environment
-    
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(AppState.self) private var appState
+    @Environment(FXService.self) private var fxService
     
     // MARK: - Data
     
@@ -52,7 +54,11 @@ struct TransactionsView: View {
     }
     
     private var statistics: TransactionStatistics {
-        viewModel.calculateStatistics(from: filteredTransactions)
+        viewModel.calculateConvertedStatistics(
+            from: filteredTransactions,
+            preferredCurrency: appState.preferredCurrencyCode,
+            fxService: fxService
+        )
     }
     
     private var hasTransactions: Bool {
@@ -126,6 +132,7 @@ struct TransactionsView: View {
             // Summary Card
             TransactionSummaryCard(
                 statistics: statistics,
+                currencyCode: appState.preferredCurrencyCode,
                 periodTitle: viewModel.filter.dateRange.shortTitle,
                 onIncomeTap: { selectFilter(.income) },
                 onExpenseTap: { selectFilter(.expense) }
@@ -571,6 +578,8 @@ private struct EmptyStateView: View {
     NavigationStack {
         TransactionsView()
     }
+    .environment(AppState())
+    .environment(FXService())
     .modelContainer(for: [Transaction.self, Category.self, Wallet.self, Tag.self])
 }
 
@@ -578,6 +587,8 @@ private struct EmptyStateView: View {
     NavigationStack {
         TransactionsView()
     }
+    .environment(AppState())
+    .environment(FXService())
     .modelContainer(for: [Transaction.self, Category.self, Wallet.self, Tag.self])
     .preferredColorScheme(.dark)
 }

@@ -80,6 +80,8 @@ struct TransactionEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(AppState.self) private var appState
+    @Environment(FXService.self) private var fxService
     
     // MARK: - Data Queries
     
@@ -110,7 +112,12 @@ struct TransactionEditorSheet: View {
     @State private var keyboardHeight: CGFloat = 0
     @State private var isSaving = false
     @State private var filteredTags: [Tag] = []
-    
+
+    // FX conversion preview
+    @State private var fxPreviewText: String?
+    @State private var fxPreviewLoading = false
+    @State private var fxDebounceTask: Task<Void, Never>?
+
     @FocusState private var focusedField: EditorField?
     
     // MARK: - Animation
@@ -203,6 +210,10 @@ struct TransactionEditorSheet: View {
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0
     }
+
+    private var showsFXPreview: Bool {
+        currencyCode != appState.preferredCurrencyCode && amount > 0
+    }
     
     // MARK: - Body
     
@@ -227,6 +238,7 @@ struct TransactionEditorSheet: View {
         .onChange(of: newTagName) { _, newValue in updateFilteredTags(searchText: newValue) }
         .onChange(of: allTags) { _, _ in updateFilteredTags(searchText: newTagName) }
         .onChange(of: selectedTags) { _, _ in updateFilteredTags(searchText: newTagName) }
+        .onChange(of: date) { _, _ in debounceFXPreview() }
         .keyboardAdaptive(height: $keyboardHeight) {
             handleKeyboardHide()
         }
@@ -423,6 +435,7 @@ struct TransactionEditorSheet: View {
     
     // MARK: - Amount Field
     
+    @ViewBuilder
     private var amountField: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             if hasAmountValue {
@@ -432,7 +445,7 @@ struct TransactionEditorSheet: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     .accessibilityHidden(true)
             }
-            
+
             TextField("Monto", text: $amountText)
                 .font(.system(size: TransactionUI.mainFontSize, weight: .bold, design: .rounded))
                 .foregroundStyle(hasAmountValue ? typeColor : FColors.textTertiary)
@@ -444,11 +457,27 @@ struct TransactionEditorSheet: View {
                 .accessibilityLabel("Monto de la transacción")
                 .accessibilityValue(hasAmountValue ? "\(currencySymbol)\(amountText)" : "Sin monto")
                 .accessibilityHint("Ingresa el monto en \(currencyCode)")
-            
+
             Spacer()
         }
         .accessibilityElement(children: .combine)
         .animation(EditorConstants.AnimationConfig.quick, value: hasAmountValue)
+        .onChange(of: amountText) { _, _ in debounceFXPreview() }
+        .onChange(of: selectedWallet) { _, _ in debounceFXPreview() }
+
+        // Vista previa de conversión FX
+        if showsFXPreview {
+            if fxPreviewLoading {
+                Text("calculando…")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FColors.textTertiary)
+            } else if let preview = fxPreviewText {
+                Text("≈ \(preview)")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FColors.textSecondary)
+                    .monospacedDigit()
+            }
+        }
     }
     
     // MARK: - Selectors Row
@@ -937,15 +966,75 @@ struct TransactionEditorSheet: View {
         return String(format: "%.2f", value)
     }
     
+    private func debounceFXPreview() {
+        fxDebounceTask?.cancel()
+        guard showsFXPreview else {
+            fxPreviewText = nil
+            fxPreviewLoading = false
+            return
+        }
+
+        let currentAmount = amount
+        let from = currencyCode
+        let to = appState.preferredCurrencyCode
+        let previewDate = date
+
+        // En modo edición: reusar tasa almacenada si fecha y moneda no cambiaron
+        if case .edit(let tx) = mode,
+           tx.hasFXSnapshot,
+           tx.fxPreferredCurrencyCode == to,
+           Calendar.current.isDate(previewDate, inSameDayAs: tx.date),
+           from == tx.safeCurrencyCode,
+           let rate = tx.fxRate {
+            let converted = currentAmount * rate
+            fxPreviewText = converted.asCurrency(code: to)
+            fxPreviewLoading = false
+            return
+        }
+
+        // Conversión local si la fecha es hoy (tasas en memoria)
+        if previewDate.isToday {
+            let engine = FXEngine(service: fxService)
+            if let local = engine.convertLocallyIfPossible(amount: currentAmount, from: from, to: to) {
+                fxPreviewText = local.convertedAmount.asCurrency(code: to)
+                fxPreviewLoading = false
+                return
+            }
+        }
+
+        // Conversión con debounce (server, date-aware)
+        fxPreviewLoading = true
+        fxDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: Constants.Timing.fxConversionDebounce)
+            guard !Task.isCancelled else { return }
+
+            let engine = FXEngine(service: fxService)
+            do {
+                let result = try await engine.convertedAmount(amount: currentAmount, from: from, to: to, on: previewDate)
+                guard !Task.isCancelled else { return }
+                fxPreviewText = result.convertedAmount.asCurrency(code: to)
+            } catch {
+                guard !Task.isCancelled else { return }
+                fxPreviewText = nil
+            }
+            fxPreviewLoading = false
+        }
+    }
+
     private func initialSetup() async {
         // Set default wallet
         if selectedWallet == nil, let defaultWallet = wallets.first(where: { $0.isDefault }) ?? wallets.first {
             selectedWallet = defaultWallet
         }
-        
+
         // Initialize filtered tags
         updateFilteredTags(searchText: "")
-        
+
+        // Trigger FX preview si ya hay monto (modo edición)
+        if amount > 0 {
+            debounceFXPreview()
+        }
+
         // Focus after delay
         try? await Task.sleep(nanoseconds: EditorConstants.focusDelay)
         focusedField = .note
@@ -965,8 +1054,18 @@ struct TransactionEditorSheet: View {
         Constants.Haptic.success()
         focusedField = nil
         
+        // Preparar snapshot FX si moneda != preferida
+        let preferred = appState.preferredCurrencyCode
+        let txCurrency = currencyCode
+        var snapshotResult: FXConversionResult?
+
+        if txCurrency != preferred {
+            let engine = FXEngine(service: fxService)
+            snapshotResult = engine.convertLocallyIfPossible(amount: amount, from: txCurrency, to: preferred)
+        }
+
         if mode.isCreating {
-            viewModel.createTransaction(
+            let tx = viewModel.createTransaction(
                 in: modelContext,
                 amount: amount,
                 type: selectedType,
@@ -977,6 +1076,16 @@ struct TransactionEditorSheet: View {
                 destinationWallet: selectedDestinationWallet,
                 tags: selectedTags.isEmpty ? nil : selectedTags
             )
+
+            // Persistir snapshot FX
+            if let tx, let fx = snapshotResult {
+                tx.fxRate = fx.rateUsed
+                tx.fxAsOfDate = fx.asOfDate
+                tx.fxPreferredCurrencyCode = preferred
+                tx.fxSource = fx.source
+                tx.fxIsEstimated = fx.isEstimated
+                try? modelContext.save()
+            }
         } else if case .edit(let existing) = mode {
             existing.amount = abs(amount)
             existing.type = selectedType
@@ -988,7 +1097,22 @@ struct TransactionEditorSheet: View {
             existing.tags = selectedTags.isEmpty ? nil : selectedTags
             existing.currencyCode = selectedWallet?.currencyCode
             existing.updatedAt = .now
-            
+
+            // Actualizar snapshot FX
+            if let fx = snapshotResult {
+                existing.fxRate = fx.rateUsed
+                existing.fxAsOfDate = fx.asOfDate
+                existing.fxPreferredCurrencyCode = preferred
+                existing.fxSource = fx.source
+                existing.fxIsEstimated = fx.isEstimated
+            } else if txCurrency == preferred {
+                existing.fxRate = nil
+                existing.fxAsOfDate = nil
+                existing.fxPreferredCurrencyCode = nil
+                existing.fxSource = nil
+                existing.fxIsEstimated = false
+            }
+
             do {
                 try modelContext.save()
             } catch {
@@ -1559,6 +1683,8 @@ private struct TransactionTypePillView: View {
                 mode: .create(type: .expense)
             )
         }
+        .environment(AppState())
+        .environment(FXService())
         .modelContainer(for: [Transaction.self, Category.self, Wallet.self, Tag.self])
 }
 
@@ -1570,6 +1696,8 @@ private struct TransactionTypePillView: View {
                 mode: .create(type: .income)
             )
         }
+        .environment(AppState())
+        .environment(FXService())
         .modelContainer(for: [Transaction.self, Category.self, Wallet.self, Tag.self])
         .preferredColorScheme(.dark)
 }

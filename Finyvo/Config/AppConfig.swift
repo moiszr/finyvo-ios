@@ -40,6 +40,9 @@ enum AppConfig {
     
     /// Habilita notificaciones push
     static let isNotificationsEnabled = true
+
+    /// Habilita integración con FinyvoRate (tasas de cambio)
+    static let isFXEnabled = true
     
     /// Habilita modo debug (logs extra, herramientas dev)
     static var isDebugMode: Bool {
@@ -110,9 +113,34 @@ enum AppConfig {
     }
     
     // MARK: - Supabase
-    
+
     enum Supabase {
         static let url = "https://your-project.supabase.co"
         static let anonKey = "your-anon-key-here"
+    }
+
+    // MARK: - FinyvoRate
+
+    enum FinyvoRate {
+        /// URL base del servicio de tasas de cambio
+        static let baseURL = "https://rate.finyvo.com"
+
+        /// Límite de peticiones por minuto
+        static let requestsPerMinute = 60
+
+        /// TTL del cache para /fx/latest (6 horas)
+        static let latestCacheTTL: TimeInterval = 6 * 3600
+
+        /// TTL del cache para /fx/symbols (7 días)
+        static let symbolsCacheTTL: TimeInterval = 7 * 86400
+
+        /// Máximo de reintentos para peticiones fallidas
+        static let maxRetryAttempts = 3
+
+        /// Delay base para backoff exponencial (segundos)
+        static let retryBaseDelay: TimeInterval = 1.0
+
+        /// Delay máximo para backoff exponencial (segundos)
+        static let retryMaxDelay: TimeInterval = 8.0
     }
 }

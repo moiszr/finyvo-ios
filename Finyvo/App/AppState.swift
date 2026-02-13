@@ -37,8 +37,19 @@ final class AppState {
     /// ID del usuario actual
     var currentUserId: String? = nil
     
-    /// Moneda preferida
-    var preferredCurrency: String = "USD"
+    /// Moneda preferida (persiste entre sesiones)
+    var preferredCurrencyCode: String {
+        get {
+            access(keyPath: \.preferredCurrencyCode)
+            return UserDefaults.standard.string(forKey: Constants.StorageKeys.preferredCurrencyCode)
+                ?? AppConfig.Defaults.currencyCode
+        }
+        set {
+            withMutation(keyPath: \.preferredCurrencyCode) {
+                UserDefaults.standard.set(newValue, forKey: Constants.StorageKeys.preferredCurrencyCode)
+            }
+        }
+    }
     
     // MARK: - Init
     

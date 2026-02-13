@@ -464,6 +464,67 @@ final class TransactionsViewModel {
     func calculateStatistics(from transactions: [Transaction]) -> TransactionStatistics {
         TransactionStatistics.calculate(from: transactions)
     }
+
+    /// Calcula estadísticas convirtiendo cada transacción a la moneda preferida.
+    @MainActor
+    func calculateConvertedStatistics(
+        from transactions: [Transaction],
+        preferredCurrency: String,
+        fxService: FXService
+    ) -> TransactionStatistics {
+        let engine = FXEngine(service: fxService)
+
+        var totalIncome: Double = 0
+        var totalExpenses: Double = 0
+        var totalTransfers: Double = 0
+        var incomeCount = 0
+        var expenseCount = 0
+        var transferCount = 0
+        var largestExpense: Double = 0
+        var largestIncome: Double = 0
+
+        for tx in transactions {
+            let txCurrency = tx.safeCurrencyCode
+            let converted: Double
+
+            if txCurrency == preferredCurrency {
+                converted = tx.amount
+            } else if let result = engine.convertLocallyIfPossible(amount: tx.amount, from: txCurrency, to: preferredCurrency) {
+                converted = result.convertedAmount
+            } else {
+                converted = tx.amount
+            }
+
+            switch tx.type {
+            case .income:
+                totalIncome += converted
+                incomeCount += 1
+                if converted > largestIncome { largestIncome = converted }
+            case .expense:
+                totalExpenses += converted
+                expenseCount += 1
+                if converted > largestExpense { largestExpense = converted }
+            case .transfer:
+                totalTransfers += converted
+                transferCount += 1
+            }
+        }
+
+        let averageExpense = expenseCount > 0 ? totalExpenses / Double(expenseCount) : 0
+
+        return TransactionStatistics(
+            totalIncome: totalIncome,
+            totalExpenses: totalExpenses,
+            totalTransfers: totalTransfers,
+            transactionCount: transactions.count,
+            incomeCount: incomeCount,
+            expenseCount: expenseCount,
+            transferCount: transferCount,
+            averageExpense: averageExpense,
+            largestExpense: largestExpense,
+            largestIncome: largestIncome
+        )
+    }
 }
 
 // MARK: - Editor Mode

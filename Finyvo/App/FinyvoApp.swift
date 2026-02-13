@@ -10,10 +10,15 @@ import SwiftData
 
 @main
 struct FinyvoApp: App {
-    
+
     // Estado global de la app - se crea una sola vez
     @State private var appState = AppState()
-    
+
+    // Servicio de tasas de cambio
+    @State private var fxService = FXService()
+
+    @Environment(\.scenePhase) private var scenePhase
+
     /// Contenedor compartido de SwiftData
     ///
     /// ⚠️ IMPORTANTE: Agregar aquí todos los modelos @Model que uses
@@ -38,9 +43,22 @@ struct FinyvoApp: App {
         WindowGroup {
             AppRouter()
                 .environment(appState)
+                .environment(fxService)
                 .modelContainer(sharedModelContainer)
                 .environment(\.locale, Locale(identifier: AppConfig.Defaults.localeIdentifier))
                 //.preferredColorScheme(.light)
+                .task {
+                    await fxService.fetchLatestRates()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        Task {
+                            if fxService.currentRates?.isExpired() ?? true {
+                                await fxService.fetchLatestRates()
+                            }
+                        }
+                    }
+                }
         }
     }
 }

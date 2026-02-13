@@ -31,6 +31,8 @@ struct TransactionDetailSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(AppState.self) private var appState
+    @Environment(FXService.self) private var fxService
 
     @State private var showDeleteAlert = false
     @State private var appeared = false
@@ -115,6 +117,27 @@ struct TransactionDetailSheet: View {
     }
 
     private var tags: [Tag] { transaction.tags ?? [] }
+
+    /// Texto de conversión FX para la moneda preferida
+    private var fxConvertedCaption: String? {
+        let preferred = appState.preferredCurrencyCode
+        let txCurrency = transaction.safeCurrencyCode
+        guard txCurrency != preferred else { return nil }
+
+        // Intentar primero el snapshot guardado
+        if let formatted = transaction.formattedFXAmount,
+           transaction.fxPreferredCurrencyCode == preferred {
+            return formatted
+        }
+
+        // Intentar conversión local
+        let engine = FXEngine(service: fxService)
+        if let result = engine.convertLocallyIfPossible(amount: transaction.amount, from: txCurrency, to: preferred) {
+            return result.convertedAmount.asCurrency(code: preferred)
+        }
+
+        return nil
+    }
 
     // MARK: - Title sizing (como editor feel)
 
@@ -266,6 +289,14 @@ struct TransactionDetailSheet: View {
                     .foregroundStyle(typeColor)
                     .monospacedDigit()
                     .contentTransition(.numericText())
+
+                // Monto convertido a moneda preferida
+                if let convertedText = fxConvertedCaption {
+                    Text("≈ \(convertedText)")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(FColors.textSecondary)
+                        .monospacedDigit()
+                }
             }
 
             // Pills abajo: wallet + category/destino
@@ -397,6 +428,8 @@ struct TransactionDetailSheet: View {
                 viewModel: TransactionsViewModel(),
                 modelContext: try! ModelContext(ModelContainer(for: Transaction.self))
             )
+            .environment(AppState())
+            .environment(FXService())
         }
         .preferredColorScheme(.dark)
 }
@@ -405,12 +438,13 @@ struct TransactionDetailSheet: View {
     Color.white.ignoresSafeArea()
         .sheet(isPresented: .constant(true)) {
             let t = Transaction(amount: 350, type: .expense, note: "Supermercado semanal")
-            // Nota: en tu app real, tags vienen de SwiftData. Aquí preview simple.
             TransactionDetailSheet(
                 transaction: t,
                 viewModel: TransactionsViewModel(),
                 modelContext: try! ModelContext(ModelContainer(for: Transaction.self))
             )
+            .environment(AppState())
+            .environment(FXService())
         }
         .preferredColorScheme(.light)
 }

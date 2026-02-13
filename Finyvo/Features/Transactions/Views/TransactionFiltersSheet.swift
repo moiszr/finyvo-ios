@@ -76,6 +76,7 @@ struct TransactionFiltersSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.hidden)
+        .background(FColors.background.ignoresSafeArea())
         .presentationBackground(FColors.background)
     }
 
@@ -296,9 +297,7 @@ struct TransactionFiltersSheet: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
 
-            Button {
-                applyFilters()
-            } label: {
+            Button { applyFilters() } label: {
                 Text("Aplicar filtros")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(isDark ? .black : .white)
@@ -314,9 +313,13 @@ struct TransactionFiltersSheet: View {
         }
         .padding(.horizontal, FSpacing.lg)
         .padding(.vertical, FSpacing.sm)
-        .background(.ultraThinMaterial)
+        .background {
+            FColors.background
+                .ignoresSafeArea(edges: .bottom)
+        }
         .animation(Constants.Animation.quickSpring, value: localFilter.hasActiveFilters)
     }
+
 
     // MARK: - Toolbar
 

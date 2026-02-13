@@ -277,7 +277,7 @@ private struct MainTabView: View {
                 }
             case .settings:
                 NavigationStack {
-                    PlaceholderView(title: section.title, icon: section.icon)
+                    SettingsPlaceholderView()
                 }
             }
         } else {
@@ -698,6 +698,44 @@ private struct PlaceholderView: View {
             .background(FColors.background)
             .navigationTitle(title)
         }
+    }
+}
+
+// MARK: - Settings Placeholder View
+
+private struct SettingsPlaceholderView: View {
+    #if DEBUG
+    @State private var showDeveloper = false
+    #endif
+
+    var body: some View {
+        VStack(spacing: FSpacing.lg) {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(FColors.textTertiary)
+
+            Text("Próximamente")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(FColors.textSecondary)
+
+            Text("v\(AppConfig.appVersion) (\(AppConfig.buildNumber))")
+                .font(.caption2)
+                .foregroundStyle(FColors.textTertiary)
+                #if DEBUG
+                .onTapGesture(count: 5) {
+                    Constants.Haptic.success()
+                    showDeveloper = true
+                }
+                #endif
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(FColors.background)
+        .navigationTitle("Ajustes")
+        #if DEBUG
+        .navigationDestination(isPresented: $showDeveloper) {
+            DeveloperView()
+        }
+        #endif
     }
 }
 

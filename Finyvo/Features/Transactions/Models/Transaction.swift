@@ -85,7 +85,24 @@ final class Transaction {
     
     /// Fecha de última actualización
     var updatedAt: Date
-    
+
+    // MARK: - FX Snapshot (al guardar, si moneda != preferida)
+
+    /// Tasa de cambio usada al momento de guardar
+    var fxRate: Double?
+
+    /// Fecha de referencia de la tasa
+    var fxAsOfDate: Date?
+
+    /// Moneda preferida al momento de guardar
+    var fxPreferredCurrencyCode: String?
+
+    /// Fuente de la tasa (kv, upstream, identity, etc.)
+    var fxSource: String?
+
+    /// Si la tasa era estimada
+    var fxIsEstimated: Bool = false
+
     // MARK: - Relationships
     
     /// Categoría de la transacción (obligatoria para income/expense)
@@ -194,6 +211,26 @@ final class Transaction {
         tags?.count ?? 0
     }
     
+    // MARK: - FX Display Helpers
+
+    /// `true` si la transacción tiene un snapshot de conversión FX
+    var hasFXSnapshot: Bool {
+        fxRate != nil && fxPreferredCurrencyCode != nil
+    }
+
+    /// Monto convertido a la moneda preferida al momento de guardar
+    var fxConvertedAmount: Double? {
+        guard let rate = fxRate else { return nil }
+        return amount * rate
+    }
+
+    /// Monto convertido formateado
+    var formattedFXAmount: String? {
+        guard let converted = fxConvertedAmount,
+              let code = fxPreferredCurrencyCode else { return nil }
+        return converted.asCurrency(code: code)
+    }
+
     // MARK: - Validation
     
     /// `true` si la transacción es válida para guardar

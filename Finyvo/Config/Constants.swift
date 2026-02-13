@@ -108,6 +108,9 @@ enum Constants {
         
         /// Debounce para validación de inputs
         static let inputValidationDebounce: Duration = .milliseconds(200)
+
+        /// Debounce para conversión de moneda en tiempo real
+        static let fxConversionDebounce: Duration = .milliseconds(500)
     }
     
     // MARK: - Layout
@@ -175,6 +178,8 @@ enum Constants {
         static let fiscalMonthStartDay = "fiscalMonthStartDay"
         static let lastSyncDate = "lastSyncDate"
         static let notificationsEnabled = "notificationsEnabled"
+        static let fxAPIToken = "fxAPIToken"
+        static let fxLastFetchDate = "fxLastFetchDate"
     }
     
     // MARK: - Regex Patterns
